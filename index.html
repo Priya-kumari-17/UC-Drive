@@ -1,0 +1,1329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>UC Drive Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<!--
+  UC Drive — Phase 1 MVP interactive prototype (v2)
+  Source: "UC Drive Redesign — Product Requirements Document" v1.0, plus Priya's direction of 19 Oct 2026:
+    · Black and white only, matching the UC app.
+    · UC Drive tile sits next to InstaHelp on the UC home screen.
+    · Three ways to book: In 1 hr (drag to choose hours), Later (date + time mandatory, drag hours),
+      Multi-day (pick several dates, each with its own time and hours; more days can be added later).
+    · Car make, model and transmission are mandatory in all three, so a driver with matching experience comes.
+    · Repeat users can ask for the same driver again.
+
+  CHANGES FROM THE PRD (by direction):
+    C-1  "In 1 hr" adds instant booking. The PRD made Phase 1 pre-booking only (non-goal, S13) to protect fill rate;
+         Ops can switch In 1 hr on or off per zone to manage that risk.
+    C-2  Night-out return (FR-B-09) is not one of the three options in this version.
+    C-3  Multi-day is a set of chosen dates, each with its own time and hours, instead of a weekday pattern.
+
+  ASSUMPTIONS:
+    A-1  Rates (open question Q1): 1 hr ₹279, +₹70 per extra hour, night band 10 PM–6 AM +₹60/hr,
+         multi-day 10% off, ₹19 booking fee + 18% GST on the fee. Same rates for In 1 hr (no surge). Editable in Ops.
+    A-2  Cancellation (Q7): full refund 4+ hours before start, 50% inside 4 hours, none after the driver arrives.
+         In 1 hr bookings: free cancellation for 5 minutes after booking, then 50% until the driver arrives.
+    A-3  Hours: 1–12. Later: at least 2 hours ahead, up to 14 days. In 1 hr: driver must reach within 60 minutes.
+    A-4  Driver match uses car type (from the model) and transmission. A driver must be cleared for both.
+    A-5  Zone caps are simulated: Friday and Saturday from 9 PM are full in every zone.
+    A-6  Camera, GPS, SMS, payments and masked calls are simulated. Sample people and bookings are not real.
+-->
+<style>
+/* Layout concept: a black-and-white workbench. Phone app in a device frame on the left,
+   a requirement trace on the right. State is shown by fill, weight, outline and icons, never by hue. */
+:root{
+  --page:#F3F3F3;     /* workbench canvas */
+  --surface:#FFFFFF;  /* app screens */
+  --tile:#F2F2F2;     /* UC service tiles */
+  --tile-2:#E8E8E8;
+  --ink:#0B0B0B;      /* text, primary fill */
+  --ink-2:#474747;
+  --ink-3:#6B6B6B;
+  --line:#E0E0E0;
+  --line-2:#BDBDBD;
+  --inv:#FFFFFF;      /* text on --ink fills */
+  --chrome:#0B0B0B; --on-chrome:#FFFFFF;
+  --shadow:0 1px 2px rgba(0,0,0,.06),0 12px 32px rgba(0,0,0,.10);
+  --f-ui:"Figtree",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --r-s:10px; --r-m:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --page:#050505; --surface:#121212; --tile:#1D1D1D; --tile-2:#272727; --ink:#F4F4F4; --ink-2:#C2C2C2; --ink-3:#9C9C9C;
+  --line:#2B2B2B; --line-2:#4A4A4A; --inv:#0B0B0B; --chrome:#000000; --on-chrome:#FFFFFF;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.6); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#050505; --surface:#121212; --tile:#1D1D1D; --tile-2:#272727; --ink:#F4F4F4; --ink-2:#C2C2C2; --ink-3:#9C9C9C;
+  --line:#2B2B2B; --line-2:#4A4A4A; --inv:#0B0B0B; --chrome:#000000; --on-chrome:#FFFFFF;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.6); color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--page);color:var(--ink);font-family:var(--f-ui);font-size:1rem;line-height:1.45;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--chrome)}
+h1,h2,h3{font-family:var(--f-ui);margin:0;text-wrap:balance;line-height:1.2}
+p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--ink);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.num{font-variant-numeric:tabular-nums}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--chrome);color:var(--on-chrome);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px;border-bottom:1px solid #222}
+.topbar-in{max-width:1240px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.05rem}
+.brand small{display:block;font-weight:500;font-size:.75rem;opacity:.75}
+.uc-mark{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;background:var(--ink);color:var(--inv);font-weight:800;font-size:.8rem;letter-spacing:.02em;flex:none}
+.topbar .uc-mark{background:#fff;color:#0B0B0B}
+.views{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto;background:#1E1E1E;padding:4px;border-radius:12px}
+.views button{min-height:44px;padding:0 14px;border:0;border-radius:9px;background:transparent;color:#fff;font-weight:600;cursor:pointer}
+.views button[aria-current="page"]{background:#fff;color:#0B0B0B}
+.views button:focus-visible{outline-color:#fff}
+
+/* workbench */
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+.bench{display:grid;grid-template-columns:minmax(0,420px);justify-content:center}
+.device{background:var(--surface);border-radius:34px;box-shadow:var(--shadow);border:8px solid #0B0B0B;overflow:hidden;position:relative;height:min(880px,calc(100dvh - 120px));min-height:640px;display:flex;flex-direction:column}
+.device-scroll{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;display:flex;flex-direction:column}
+.device-scroll > .grow{flex:1}
+.trace{position:sticky;top:calc(env(safe-area-inset-top,0px) + 92px);display:grid;gap:16px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:20px;min-width:0}
+.panel h2{font-size:1.15rem;margin-bottom:8px}
+.eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.fr-list{display:grid;gap:8px;margin:12px 0 0;padding:0;list-style:none}
+.fr-list li{display:grid;grid-template-columns:96px 1fr;gap:10px;font-size:.92rem}
+.fr-id{font-family:var(--f-mono);font-size:.78rem;font-weight:700;padding-top:2px}
+.tip{margin-top:12px;background:var(--tile);border-radius:var(--r-s);padding:12px 14px;font-size:.92rem}
+@media (max-width:900px){
+  .bench{grid-template-columns:minmax(0,1fr)}
+  .trace{position:static}
+  .device{border-radius:24px;border-width:6px;height:auto;min-height:0}
+  .device-scroll{overflow:visible}
+  .bar{position:static!important}
+}
+@media (max-width:520px){
+  .wrap{padding-left:0;padding-right:0;padding-top:0}
+  .device{border:0;border-radius:0;box-shadow:none}
+  .trace{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+}
+
+/* UC home */
+.app-head{background:var(--ink);color:var(--inv);padding:14px 16px 18px}
+.city{display:flex;align-items:center;gap:6px;font-weight:600}
+.city select{background:transparent;border:0;color:var(--inv);font-weight:700;font-size:1rem;min-height:44px;cursor:pointer}
+.city select option{color:#0B0B0B;background:#fff}
+.hdr-btns{display:flex;gap:4px}
+.hdr-btn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:var(--inv);display:grid;place-items:center;cursor:pointer}
+.hdr-btn:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
+.hdr-btn:focus-visible{outline-color:var(--inv)}
+.menu{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.menu > li > button{display:flex;width:100%;align-items:center;gap:12px;min-height:54px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer;padding:0 4px;font-weight:600;color:var(--ink)}
+.menu > li > button:hover{background:var(--tile)}
+.menu .go{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:600;font-size:.86rem}
+.menu .sub{padding:12px 4px 14px;border-bottom:1px solid var(--line);display:grid;gap:10px}
+.bal{display:grid;gap:2px}
+.bal b{font-size:1.4rem;font-variant-numeric:tabular-nums}
+.search{margin-top:8px;display:flex;align-items:center;gap:10px;background:var(--surface);color:var(--ink-3);border-radius:12px;min-height:50px;padding:0 14px;border:0;width:100%;text-align:left;cursor:pointer;font-size:1.02rem}
+.promos{display:grid;grid-auto-flow:column;grid-auto-columns:40%;gap:10px;overflow-x:auto;margin-top:14px;padding-bottom:4px;scrollbar-width:none}
+.promo{background:var(--surface);color:var(--ink);border-radius:14px;border:0;padding:0;overflow:hidden;display:flex;flex-direction:column;text-align:center;cursor:pointer}
+.promo .art{height:84px;background:var(--tile);display:grid;place-items:center;position:relative;color:var(--ink-2)}
+.promo b{font-weight:700;font-size:.92rem;padding:8px 6px}
+.badge{position:absolute;left:6px;top:6px;background:var(--ink);color:var(--inv);font-size:.7rem;font-weight:700;border-radius:6px;padding:2px 7px}
+.app-body{padding:18px 16px 24px;display:grid;gap:18px}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 10px}
+.svc{display:grid;gap:6px;justify-items:center;align-content:start;text-align:center;background:none;border:0;padding:0;cursor:pointer;font-size:.84rem;line-height:1.25;color:var(--ink)}
+.svc .ic{position:relative;width:100%;aspect-ratio:1.35;max-width:100%;background:var(--tile);border-radius:12px;display:grid;place-items:center;color:var(--ink-2)}
+.svc .eta{position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);background:var(--surface);color:var(--ink);font-weight:700;font-size:.68rem;border:1px solid var(--line-2);border-radius:7px;padding:1px 6px;white-space:nowrap}
+.svc.drive .ic{background:var(--ink);color:var(--inv)}
+.svc.drive .eta{background:var(--surface);border-color:var(--ink)}
+.svc .l{margin-top:6px}
+.sec-title{font-size:1.15rem;font-weight:700}
+.spot{background:var(--ink);color:var(--inv);border-radius:var(--r-m);padding:18px;display:grid;gap:10px;border:0;text-align:left;cursor:pointer;width:100%}
+.spot h3{font-size:1.4rem;font-weight:800}
+.spot p{opacity:.85;font-size:.92rem}
+
+.bottom-nav{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-top:1px solid var(--line);background:var(--surface);position:sticky;bottom:0}
+.bottom-nav button{min-height:62px;border:0;background:none;display:grid;justify-items:center;align-content:center;gap:2px;font-size:.72rem;padding:0 2px;font-weight:600;color:var(--ink-3);cursor:pointer}
+.bottom-nav button[aria-current="page"]{color:var(--ink);font-weight:800}
+.upnext{display:flex;align-items:center;gap:12px;border:0;border-top:1px solid var(--line);background:var(--surface);padding:10px 16px;text-align:left;width:100%;cursor:pointer;min-height:64px}
+.upnext .clock{width:44px;height:44px;border-radius:10px;background:var(--tile);display:grid;place-items:center;flex:none}
+
+.bar{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 4px;border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:3}
+.bar h1{font-size:1.1rem;flex:1;min-width:0}
+.icon-btn{min-width:44px;min-height:44px;border:0;background:none;border-radius:12px;display:grid;place-items:center;cursor:pointer;color:var(--ink)}
+.icon-btn:hover{background:var(--tile)}
+
+/* content */
+.lead{font-size:1rem;color:var(--ink-2)}
+.card{border:1px solid var(--line);border-radius:var(--r-m);padding:14px;background:var(--surface)}
+.card.inv{background:var(--ink);color:var(--inv);border-color:var(--ink)}
+.stack{display:grid;gap:12px}
+.stack-s{display:grid;gap:6px}
+.row{display:flex;align-items:center;gap:10px}
+.row-b{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.wrapr{display:flex;flex-wrap:wrap;gap:8px}
+.muted{color:var(--ink-2)}
+.small{font-size:.86rem}
+.xs{font-size:.78rem}
+.b{font-weight:700}
+.hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+
+.modes{display:grid;gap:10px}
+.mode{display:flex;gap:14px;align-items:center;text-align:left;width:100%;border:1.5px solid var(--line);background:var(--surface);border-radius:var(--r-m);padding:16px;cursor:pointer;min-height:84px}
+.mode:hover{border-color:var(--ink)}
+.mode .ic{flex:none;width:52px;height:52px;border-radius:14px;background:var(--tile);display:grid;place-items:center}
+.mode h3{font-size:1.05rem}
+.mode .go{margin-left:auto;flex:none}
+
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--tile);border-radius:12px;padding:4px;gap:4px}
+.seg button{min-height:44px;border:0;border-radius:9px;background:transparent;font-weight:600;font-size:.9rem;cursor:pointer;color:var(--ink-2)}
+.seg button[aria-pressed="true"],.seg button[aria-selected="true"]{background:var(--ink);color:var(--inv)}
+
+fieldset{border:0;margin:0;padding:0;min-width:0}
+legend{padding:0;font-weight:700;font-size:.98rem;margin-bottom:8px;display:flex;gap:6px;align-items:baseline}
+.req{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
+label.f{display:grid;gap:6px;font-weight:600;font-size:.92rem;min-width:0}
+.hint{font-weight:400;color:var(--ink-3);font-size:.82rem}
+input[type=text],input[type=tel],input[type=date],input[type=number],select,textarea{
+  width:100%;min-height:48px;border:1.5px solid var(--line-2);border-radius:12px;background:var(--surface);padding:10px 12px;font-weight:500}
+textarea{min-height:88px;resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--ink);outline:2px solid var(--ink);outline-offset:0}
+[aria-invalid="true"]{border:2px dashed var(--ink)!important}
+.err{color:var(--ink);font-size:.86rem;font-weight:700;display:flex;gap:6px;align-items:flex-start}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.section{border-top:1px solid var(--line);padding-top:16px}
+
+/* drag (range) */
+.drag{display:grid;gap:8px}
+.drag-top{display:flex;align-items:baseline;justify-content:space-between}
+.drag-val{font-size:1.9rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.drag-val small{font-size:1rem;font-weight:600;margin-left:4px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;cursor:grab;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:999px;background:linear-gradient(to right,var(--ink) 0 var(--fill,30%),var(--tile-2) var(--fill,30%) 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:var(--surface);border:3px solid var(--ink);margin-top:-11px;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+input[type=range]::-moz-range-track{height:8px;border-radius:999px;background:var(--tile-2)}
+input[type=range]::-moz-range-progress{height:8px;border-radius:999px;background:var(--ink)}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:var(--surface);border:3px solid var(--ink)}
+input[type=range]:focus{outline:none}
+input[type=range]:focus-visible::-webkit-slider-thumb{outline:3px solid var(--ink);outline-offset:3px}
+input[type=range]:focus-visible{outline:3px solid var(--ink);outline-offset:2px;border-radius:8px}
+.ticks{display:flex;justify-content:space-between;font-size:.75rem;color:var(--ink-3);font-variant-numeric:tabular-nums;padding:0 4px}
+
+/* car chips, radio cards */
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{min-height:44px;border:1.5px solid var(--line-2);border-radius:999px;background:var(--surface);padding:0 14px;font-weight:600;font-size:.88rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--inv);border-color:var(--ink)}
+.radio-card{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line-2);border-radius:12px;padding:12px;cursor:pointer;min-height:44px}
+.radio-card:has(input:checked){border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.radio-card input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--ink);flex:none}
+.chk{display:flex;gap:10px;align-items:center;min-height:44px;cursor:pointer}
+.chk input{width:22px;height:22px;accent-color:var(--ink);flex:none}
+.same{display:flex;gap:12px;align-items:center;border:1.5px solid var(--ink);border-radius:var(--r-m);padding:12px;cursor:pointer}
+.same:has(input:checked){background:var(--ink);color:var(--inv)}
+.same input{width:22px;height:22px;accent-color:var(--ink);flex:none}
+.same:has(input:checked) .avatar{background:var(--inv);color:var(--ink)}
+.same:has(input:checked) .muted{color:inherit;opacity:.8}
+
+/* date picker */
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.cal .wd{font-size:.7rem;text-align:center;color:var(--ink-3);font-weight:700;text-transform:uppercase}
+.day{min-height:52px;border:1.5px solid var(--line-2);border-radius:10px;background:var(--surface);display:grid;place-items:center;align-content:center;gap:0;cursor:pointer;font-weight:700;padding:2px}
+.day small{font-size:.66rem;font-weight:600;color:var(--ink-3)}
+.day[aria-pressed="true"]{background:var(--ink);color:var(--inv);border-color:var(--ink)}
+.day[aria-pressed="true"] small{color:inherit;opacity:.8}
+.day.blank{visibility:hidden}
+.dayrow{border:1px solid var(--line);border-radius:var(--r-m);padding:12px;display:grid;gap:10px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 18px;border-radius:12px;border:1.5px solid transparent;font-weight:700;cursor:pointer;text-decoration:none}
+.btn-primary{background:var(--ink);color:var(--inv)}
+.btn-primary:hover{opacity:.88}
+.btn-ghost{background:var(--surface);border-color:var(--line-2);color:var(--ink)}
+.btn-ghost:hover{border-color:var(--ink)}
+.btn-sos{background:var(--ink);color:var(--inv);min-height:58px;font-size:1.1rem;letter-spacing:.08em;border:3px solid var(--ink);box-shadow:0 0 0 3px var(--surface) inset}
+.btn-link{background:none;border:0;color:var(--ink);font-weight:700;min-height:44px;padding:0 4px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;display:inline-flex;align-items:center;gap:4px}
+.btn-sm{min-height:44px;padding:0 12px;font-size:.88rem}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.full{width:100%}
+.footer-cta{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:12px 16px;display:grid;gap:6px;z-index:3}
+.footer-cta .sum{display:flex;justify-content:space-between;font-size:.86rem;color:var(--ink-2)}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:.76rem;font-weight:700;border-radius:999px;padding:3px 10px;white-space:nowrap;border:1.5px solid var(--ink);color:var(--ink);background:var(--surface)}
+.pill.solid{background:var(--ink);color:var(--inv)}
+.pill.dash{border-style:dashed;color:var(--ink-2);border-color:var(--ink-3)}
+.pill.soft{border-color:var(--line-2);color:var(--ink-2)}
+
+.notice{border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:.92rem;background:var(--tile)}
+.notice.strong{background:var(--ink);color:var(--inv)}
+.notice.outline{background:var(--surface);border:2px solid var(--ink)}
+.notice svg{flex:none;margin-top:1px}
+
+.price{display:grid;gap:8px}
+.price .l{display:flex;justify-content:space-between;gap:10px;font-size:.95rem}
+.price .t{font-weight:800;font-size:1.1rem;border-top:1px dashed var(--line-2);padding-top:10px}
+
+.driver{display:flex;gap:12px;align-items:center}
+.avatar{flex:none;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:1.1rem;color:var(--inv);background:var(--ink)}
+.avatar.sm{width:44px;height:44px;font-size:.9rem}
+.verified{display:inline-flex;align-items:center;gap:4px;font-weight:700;font-size:.8rem}
+
+.timeline{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.timeline li{display:grid;grid-template-columns:64px 1fr;gap:10px;font-size:.88rem}
+.timeline time{color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ph{aspect-ratio:4/3;border-radius:10px;background:var(--tile);border:1.5px dashed var(--line-2);display:grid;place-items:center;text-align:center;font-size:.72rem;color:var(--ink-3);padding:4px;overflow:hidden}
+.ph.done{border:0;background:repeating-linear-gradient(135deg,#3a3a3a 0 6px,#2f2f2f 6px 12px);color:#fff}
+.ph.done b{font-size:.78rem}
+.ph button{all:unset;display:grid;place-items:center;width:100%;height:100%;cursor:pointer;min-height:44px}
+.ph button:focus-visible{outline:3px solid var(--ink)}
+
+.pin{display:flex;gap:8px}
+.pin span{width:52px;height:60px;border-radius:12px;background:var(--tile);display:grid;place-items:center;font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums}
+
+.map{position:relative;border-radius:var(--r-m);overflow:hidden;background:var(--tile);border:1px solid var(--line)}
+.map svg{display:block;width:100%;height:auto}
+.map .live{position:absolute;left:10px;top:10px;background:var(--surface);border-radius:999px;padding:4px 10px;font-size:.78rem;font-weight:700;display:flex;gap:6px;align-items:center;border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ink);display:inline-block}
+@media (prefers-reduced-motion:no-preference){.dot{animation:pulse 1.4s infinite}}
+@keyframes pulse{50%{opacity:.25}}
+
+.stars{display:flex;gap:4px}
+.stars label{cursor:pointer;min-width:44px;min-height:44px;display:grid;place-items:center;color:var(--line-2)}
+.stars input{position:absolute;opacity:0;width:1px;height:1px}
+.stars label.on{color:var(--ink)}
+.stars label:has(input:focus-visible){outline:3px solid var(--ink);border-radius:8px}
+
+.steps{list-style:none;padding:0;margin:0;display:grid}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:10px;padding-bottom:14px;position:relative}
+.steps li::before{content:"";position:absolute;left:13px;top:26px;bottom:0;width:2px;background:var(--line)}
+.steps li:last-child::before{display:none}
+.steps .s{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--surface);border:2px solid var(--line-2);color:var(--ink-3);font-size:.75rem;font-weight:800;position:relative;z-index:1}
+.steps li.done .s{background:var(--ink);border-color:var(--ink);color:var(--inv)}
+.steps li.now .s{border-color:var(--ink);color:var(--ink)}
+.hsteps{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;list-style:none;margin:0;padding:0}
+.hsteps li{display:grid;justify-items:center;text-align:center;gap:4px;font-size:.74rem}
+.hsteps .s{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--line-2);font-weight:800;font-size:.75rem;color:var(--ink-3)}
+.hsteps li.done .s{background:var(--ink);border-color:var(--ink);color:var(--inv)}
+.hsteps li.now .s{border-color:var(--ink);color:var(--ink)}
+.hsteps li.now{font-weight:700}
+
+.list-btn{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:14px;cursor:pointer;min-height:44px}
+.list-btn:hover{border-color:var(--ink)}
+.demo{border:1.5px dashed var(--ink-3);border-radius:12px;padding:10px 12px;display:grid;gap:8px}
+.demo .eyebrow{display:flex;gap:6px;align-items:center}
+
+/* modal */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:20}
+.sheet{background:var(--surface);width:100%;border-radius:20px 20px 0 0;padding:20px 16px calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:14px;max-height:92%;overflow-y:auto}
+.sheet h2{font-size:1.2rem}
+.page-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;z-index:30;padding:16px}
+.page-scrim .sheet{border-radius:20px;max-width:440px}
+@media (max-width:900px){.scrim{position:fixed}}
+.toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:40;display:grid;gap:8px;width:min(440px,calc(100% - 32px))}
+.toast{background:var(--ink);color:var(--inv);border-radius:12px;padding:12px 16px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:.92rem}
+
+/* ops */
+.ops{display:grid;gap:20px}
+.ops-head{display:flex;flex-wrap:wrap;gap:12px;align-items:end;justify-content:space-between}
+.ops-head h1{font-size:1.6rem}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:14px 16px}
+.kpi.alert{background:var(--ink);color:var(--inv);border-color:var(--ink)}
+.kpi .v{font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums}
+.kpi .k{font-size:.8rem;font-weight:600;opacity:.8}
+.ops-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:20px;align-items:start}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);text-align:left;font-weight:700;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.alert td{background:var(--tile)}
+tr.alert td:first-child{box-shadow:inset 5px 0 0 var(--ink)}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tabs button{min-height:44px;padding:0 14px;border:0;background:none;font-weight:700;color:var(--ink-3);border-bottom:3px solid transparent;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.switch{position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;min-height:44px}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch .tr{width:44px;height:26px;border-radius:999px;background:var(--surface);border:2px solid var(--ink-3);position:relative;flex:none}
+.switch .tr::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:left .15s}
+.switch input:checked + .tr{background:var(--ink);border-color:var(--ink)}
+.switch input:checked + .tr::after{left:21px;background:var(--inv)}
+.switch input:focus-visible + .tr{outline:3px solid var(--ink);outline-offset:2px}
+.zone-row{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding-left:20px}
+.zone-row b{min-width:130px;font-size:.88rem}
+.audit{list-style:none;margin:0;padding:0;display:grid;gap:8px;font-size:.86rem;max-height:300px;overflow:auto}
+.audit li{display:grid;grid-template-columns:62px 1fr;gap:8px}
+.audit time{color:var(--ink-3);font-variant-numeric:tabular-nums}
+@media (max-width:1100px){.ops-grid{grid-template-columns:minmax(0,1fr)}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:600px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand"><span class="uc-mark" aria-hidden="true">UC</span><span>UC Drive</span></div>
+    <nav class="views" aria-label="Prototype views" id="views"></nav>
+  </div>
+</header>
+<main class="wrap" id="main"></main>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div id="page-modal"></div>
+
+<script>
+(function(){
+"use strict";
+/* ============ helpers ============ */
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr=n=>'₹'+Math.round(n).toLocaleString('en-IN');
+const pad=n=>String(n).padStart(2,'0');
+const H=3600e3,MIN=60e3,DAY=86400e3;
+const fDate=d=>new Date(d).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+const fTime=d=>new Date(d).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'});
+const fDT=d=>fDate(d)+', '+fTime(d);
+const isoDate=d=>{d=new Date(d);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
+const hhmm=d=>{d=new Date(d);return pad(d.getHours())+':'+pad(d.getMinutes());};
+const combine=(ds,ts)=>{if(!ds||!ts)return null;const[y,m,dd]=ds.split('-').map(Number);const[h,mi]=ts.split(':').map(Number);return new Date(y,m-1,dd,h,mi).getTime();};
+const rnd=(a,b)=>Math.floor(a+Math.random()*(b-a+1));
+const initials=n=>n.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();
+const now=()=>Date.now();
+const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const hrs=n=>`${n} hr${n>1?'s':''}`;
+const I={
+ back:'<path d="M15 5l-7 7 7 7"/>',fwd:'<path d="M9 5l7 7-7 7"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+ wheel:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M3.5 10.5c3-1 5.5-1.2 8.5-1.2s5.5.2 8.5 1.2M10 14l-3.5 6M14 14l3.5 6"/>',
+ car:'<path d="M5 16h14M4 16v-4l2-5h12l2 5v4M6.5 16v2.5M17.5 16v2.5"/><circle cx="7.5" cy="13" r="1"/><circle cx="16.5" cy="13" r="1"/>',
+ bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',cal:'<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+ cals:'<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h2M14 14h2M8 17h2"/>',
+ shield:'<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',pin:'<path d="M12 21s-7-6.2-7-11.5A7 7 0 0119 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',home:'<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',list:'<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+ phone:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/>',share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/>',
+ alert:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+ star:'<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 17l-5.2 2.7 1-5.9-4.3-4.1 5.9-.8z"/>',cam:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+ user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',plus:'<path d="M12 5v14M5 12h14"/>',
+ flask:'<path d="M9 3h6M10 3v6l-5 9a2 2 0 001.8 3h10.4a2 2 0 001.8-3l-5-9V3"/>',spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
+ face:'<circle cx="12" cy="12" r="8"/><path d="M9 10h.01M15 10h.01M9 15c1.7 1.3 4.3 1.3 6 0"/>',brush:'<path d="M5 3h10v6H5zM15 6h4v5h-8v3M11 14h2v7h-2z"/>',
+ ac:'<rect x="3" y="6" width="18" height="8" rx="2"/><path d="M6 11h12M8 17v2M12 17v3M16 17v2"/>',tool:'<path d="M14 6l4-3 3 3-3 4zM14 6L4 16l4 4 10-10M7 13l4 4"/>',
+ vac:'<path d="M7 20a3 3 0 110-6h4V8a4 4 0 018 0"/><circle cx="7" cy="17" r="1"/>',panel:'<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9 4v16M14 4v16"/>',
+ lock:'<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',drop:'<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>',
+ wallet:'<path d="M4 7h14a2 2 0 012 2v9a2 2 0 01-2 2H5a1 1 0 01-1-1V7zM4 7l11-3v3"/><path d="M16 13.5h.01"/>',
+ gift:'<rect x="4" y="9" width="16" height="11" rx="1"/><path d="M3 9h18M12 9v11M12 9S10 4 7.5 5.5 9 9 12 9zM12 9s2-5 4.5-3.5S15 9 12 9z"/>',
+ coin:'<circle cx="12" cy="12" r="8"/><path d="M9 9h5M9 12h5M11 9c2 0 3 1 3 2.5S12 15 10 15l4 3"/>',
+ help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.2-1.5 2.5M12 17h.01"/>',
+ bag:'<path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 016 0v2"/>',
+ chat:'<path d="M4 5h16v11H9l-5 4z"/>',
+ repeat:'<path d="M17 2l3 3-3 3M4 11V9a4 4 0 014-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 01-4 4H4"/>',
+};
+const ic=(n,s=22,extra='')=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${I[n]}</svg>`;
+const starFill=s=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${I.star}</svg>`;
+
+/* ============ reference data ============ */
+const LAUNCH=['Bengaluru','Delhi','Gurugram','Hyderabad','Mumbai','Chennai'];
+const CITY_DATA={
+ Bengaluru:{zones:['Koramangala','Indiranagar','HSR Layout','Jayanagar'],outside:['Electronic City','Whitefield']},
+ Delhi:{zones:['Saket','Vasant Kunj','Dwarka'],outside:['Narela']},Gurugram:{zones:['DLF Phase 2','Sohna Road','Golf Course Road'],outside:['Manesar']},
+ Hyderabad:{zones:['Banjara Hills','Gachibowli','Kondapur'],outside:['Shamshabad']},Mumbai:{zones:['Bandra West','Powai','Andheri East'],outside:['Virar']},
+ Chennai:{zones:['Adyar','Anna Nagar','Velachery'],outside:['Tambaram']},Pune:{zones:[],outside:[]},Kolkata:{zones:[],outside:[]},
+};
+/* car catalogue: model → type. Type + transmission decide which drivers qualify (A-4) */
+const CARS={
+ 'Maruti Suzuki':{Swift:'Hatchback',Baleno:'Hatchback',Dzire:'Sedan',Ciaz:'Sedan',Brezza:'SUV',Ertiga:'MUV'},
+ 'Hyundai':{i20:'Hatchback',Verna:'Sedan',Creta:'SUV',Alcazar:'SUV'},
+ 'Tata':{Altroz:'Hatchback',Nexon:'SUV',Harrier:'SUV',Safari:'SUV'},
+ 'Mahindra':{'XUV700':'SUV','Scorpio-N':'SUV',Thar:'SUV'},
+ 'Honda':{Amaze:'Sedan',City:'Sedan',Elevate:'SUV'},
+ 'Toyota':{Glanza:'Hatchback','Innova Crysta':'MUV',Fortuner:'SUV'},
+ 'Kia':{Sonet:'SUV',Seltos:'SUV',Carens:'MUV'},
+ 'MG':{Astor:'SUV',Hector:'SUV'},
+ 'Skoda':{Slavia:'Sedan',Kushaq:'SUV'},
+ 'Mercedes-Benz':{'C-Class':'Luxury','E-Class':'Luxury',GLC:'Luxury'},
+ 'BMW':{'3 Series':'Luxury',X1:'Luxury'},
+ 'Audi':{A4:'Luxury',Q3:'Luxury'},
+};
+const TYPES=['Hatchback','Sedan','SUV','MUV','Luxury'];
+const MODE_LABEL={now:'In 1 hr',later:'Later',multi:'Multi-day'};
+
+function seed(){
+ const t0=now();
+ const at=(dayOff,h,m=0)=>{const d=new Date(t0+dayOff*DAY);d.setHours(h,m,0,0);return d.getTime();};
+ const zonesOn={},instantOn={};Object.keys(CITY_DATA).forEach(c=>{zonesOn[c]={};instantOn[c]={};CITY_DATA[c].zones.forEach(z=>{zonesOn[c][z]=true;instantOn[c][z]=true;});});
+ const cityOn={};LAUNCH.forEach(c=>cityOn[c]=true);
+ const drivers=[
+  {id:'d1',name:'Ramesh Gowda',city:'Bengaluru',zones:['Koramangala','HSR Layout','Jayanagar'],skills:['Manual','Automatic'],types:['Hatchback','Sedan','SUV','MUV'],years:14,rating:4.9,trips:312,status:'verified',online:true,since:'Mar 2026'},
+  {id:'d2',name:'Suresh Kumar',city:'Bengaluru',zones:['Indiranagar','Koramangala'],skills:['Manual'],types:['Hatchback','Sedan'],years:9,rating:4.8,trips:205,status:'verified',online:true,since:'Apr 2026'},
+  {id:'d3',name:'Imran Pasha',city:'Bengaluru',zones:['HSR Layout','Jayanagar','Indiranagar'],skills:['Manual','Automatic'],types:['Hatchback','Sedan','SUV','MUV'],years:11,rating:4.7,trips:164,status:'verified',online:false,since:'May 2026'},
+  {id:'d4',name:'Venkatesh R',city:'Bengaluru',zones:['Koramangala','Indiranagar','Jayanagar','HSR Layout'],skills:['Automatic','Manual'],types:['Sedan','SUV','Luxury'],years:17,rating:4.9,trips:276,status:'verified',online:true,since:'Mar 2026'},
+  {id:'d5',name:'Manjunath S',city:'Bengaluru',zones:['Koramangala'],skills:['Manual'],types:['Hatchback'],years:4,rating:4.1,trips:58,status:'suspended',online:false,since:'Jun 2026',note:'Rolling rating fell below threshold'},
+ ];
+ const others={Delhi:['Rakesh Yadav','Gurpreet Singh'],Gurugram:['Sunil Rathi','Deepak Sharma'],Hyderabad:['Srinivas Rao','Mohammed Afzal'],Mumbai:['Santosh Patil','Anil Shinde'],Chennai:['Karthik S','Murugan P']};
+ let n=6;Object.entries(others).forEach(([c,names])=>names.forEach((nm,i)=>drivers.push({id:'d'+(n++),name:nm,city:c,zones:CITY_DATA[c].zones.slice(),skills:['Manual','Automatic'],types:i?['Hatchback','Sedan','SUV','MUV']:TYPES.slice(),years:10,rating:4.8,trips:120+i*40,status:'verified',online:true,since:'Apr 2026'})));
+ const addresses=[{id:'a1',city:'Bengaluru',label:'Home',line:'Flat 402, Sobha Lotus, 5th Block',zone:'Koramangala'},{id:'a2',city:'Bengaluru',label:"Parents' home",line:'22, 9th Main, 4th Block',zone:'Jayanagar'}];
+ LAUNCH.slice(1).forEach((c,i)=>addresses.push({id:'a'+(10+i),city:c,label:'Home',line:'Sample address',zone:CITY_DATA[c].zones[0]}));
+ const myCars=[{id:'c1',make:'Maruti Suzuki',model:'Ciaz',trans:'Manual'},{id:'c2',make:'Hyundai',model:'Creta',trans:'Automatic'}];
+ const mk=(o)=>Object.assign({timeline:[],startPhotos:[],returnPhotos:[],status:'upcoming',city:'Bengaluru'},o);
+ const bookings=[
+  mk({id:'UCD-48213',mode:'later',customer:'You',mine:true,make:'Maruti Suzuki',model:'Ciaz',trans:'Manual',addrId:'a2',zone:'Jayanagar',start:at(-8,10),dur:4,end:at(-8,14),driverId:'d1',status:'completed',price:{total:511},rating:5,tripPhase:'done',passenger:{self:false,name:'Shanta (Mum)'}}),
+  mk({id:'UCD-50117',mode:'later',customer:'Ananya R.',make:'Honda',model:'City',trans:'Manual',zone:'Koramangala',start:at(1,9),dur:3,end:at(1,12),driverId:'d2',price:{total:442}}),
+  mk({id:'UCD-50121',mode:'now',customer:'Mohit S.',make:'Kia',model:'Seltos',trans:'Automatic',zone:'Indiranagar',start:t0+38*MIN,dur:2,end:t0+38*MIN+2*H,driverId:null,price:{total:371},note:'Driver declined; no other matching driver online',accepted:false}),
+  mk({id:'UCD-50126',mode:'multi',customer:'Kavya N.',make:'Toyota',model:'Innova Crysta',trans:'Manual',zone:'HSR Layout',start:at(1,8),dur:8,end:at(1,16),driverId:'d3',backupId:'d4',price:{total:9412},days:[1,2,3,4,5].map(k=>({date:isoDate(at(k,8)),time:'08:00',hours:8,status:'scheduled'}))}),
+  mk({id:'UCD-50133',mode:'later',customer:'Farhan A.',make:'Mercedes-Benz',model:'C-Class',trans:'Automatic',zone:'Jayanagar',start:at(1,18),dur:2,end:at(1,20),driverId:null,price:{total:371},requested:'d4'}),
+ ];
+ bookings.forEach(b=>{b.type=typeOf(b.make,b.model);});
+ return {view:'customer',screen:'home',history:[],city:'Bengaluru',opsTab:'bookings',partnerTab:'trips',opsZone:'All',opsMode:'All',
+  config:{cityOn,zonesOn,instantOn,leadH:2,horizonD:14,minH:1,maxH:12,multiMin:2,instantMaxMin:60,familyMax:3,overtimeBlock:30,damageWindowH:24,cancelFreeH:4,suspendBelow:4.2},
+  rates:{hourFirst:279,hourExtra:70,nightPerHour:60,multiDiscount:10,overtime:45,fee:19},
+  drivers,addresses,myCars,bookings,draft:null,current:null,sos:[],claims:[],family:[{name:'Rahul (brother)',phone:'98861 30452'}],
+  audit:[{t:t0-6*MIN,who:'System',text:'UCD-50121 (In 1 hr): Suresh Kumar declined; no other online driver cleared for SUV · Automatic in Indiranagar.'}],
+  offline:false,applicant:{name:'Arjun Naik',docs:{id:false,licence:false,photo:false},bgv:'not_started',test:'pending',training:{care:false,handover:false,safety:false},skills:{Manual:true,Automatic:false},types:{Hatchback:true,Sedan:true,SUV:false,MUV:false,Luxury:false},years:'6',zones:['Koramangala','Jayanagar'],activated:false},
+  availability:{},guaranteed:{fri:false,sat:true,sun:false},modal:null,pageModal:null,
+  profile:{name:'Priya',phone:'+91 98450 61027',email:'priya@example.com'},
+  wallet:{cash:1240,credits:150,creditsExpire:'31 Dec 2026',activity:[
+   {t:t0-2*DAY,text:'Refund · Cleaning booking cancelled',amt:299,kind:'cash'},
+   {t:t0-6*DAY,text:'Added money via UPI',amt:1000,kind:'cash'},
+   {t:t0-9*DAY,text:'Referral reward · UC Credits',amt:150,kind:'credits'},
+   {t:t0-12*DAY,text:'Paid · Salon at home',amt:-59,kind:'cash'}]}};
+}
+function typeOf(make,model){return (CARS[make]&&CARS[make][model])||null;}
+let S=seed();
+
+/* ============ domain ============ */
+const driver=id=>S.drivers.find(d=>d.id===id);
+const addr=id=>S.addresses.find(a=>a.id===id);
+const booking=id=>S.bookings.find(b=>b.id===id);
+const cityLive=c=>LAUNCH.includes(c)&&!!S.config.cityOn[c];
+const zoneLive=(c,z)=>cityLive(c)&&!!(S.config.zonesOn[c]||{})[z];
+const instantLive=(c,z)=>zoneLive(c,z)&&!!(S.config.instantOn[c]||{})[z];
+const isNight=h=>h>=22||h<6;
+function atCap(ts){const d=new Date(ts);return (d.getDay()===5||d.getDay()===6)&&d.getHours()>=21;}
+const overlaps=(a1,a2,b1,b2)=>a1<b2&&b1<a2;
+function busy(dId,start,end,ignoreId){
+ return S.bookings.some(b=>{ if(b.id===ignoreId||b.status!=='upcoming') return false; if(b.driverId!==dId&&b.backupId!==dId) return false;
+  if(b.days) return b.days.some(x=>x.status==='scheduled'&&overlaps(start,end,combine(x.date,x.time),combine(x.date,x.time)+x.hours*H));
+  return overlaps(start,end,b.start,b.end); });
+}
+/* FR-M-01 + car experience: verified, zone, transmission AND car type; instant also needs the driver online */
+function qualifies(d,city,zone,trans,type){return d.status==='verified'&&d.city===city&&d.zones.includes(zone)&&d.skills.includes(trans)&&d.types.includes(type);}
+function eligible(city,zone,trans,type,start,end,opts={}){
+ return S.drivers.filter(d=>qualifies(d,city,zone,trans,type)&&(!opts.instant||d.online)&&!busy(d.id,start,end,opts.ignore)).sort((a,b)=>b.rating-a.rating||b.trips-a.trips);
+}
+function pastDrivers(){const ids=[...new Set(S.bookings.filter(b=>b.mine&&b.status==='completed'&&b.driverId).map(b=>b.driverId))];return ids.map(driver).filter(d=>d&&d.city===S.city);}
+function lastTripWith(dId){return S.bookings.filter(b=>b.mine&&b.status==='completed'&&b.driverId===dId).sort((a,b)=>b.start-a.start)[0];}
+
+function dayFare(start,h){const r=S.rates;const base=r.hourFirst+Math.max(0,h-1)*r.hourExtra;let nightH=0;for(let i=0;i<h;i++)if(isNight(new Date(start+i*H).getHours()))nightH++;return {base,nightH,night:nightH*r.nightPerHour};}
+function draftStart(d){return d.mode==='now'?now()+etaMin(d)*MIN:d.mode==='later'?combine(d.date,d.time):(d.multi[0]?combine(d.multi[0].date,d.multi[0].time):null);}
+function etaMin(d){return d._eta||35;}
+/* FR-P-01/02 itemised */
+function quote(d){
+ const r=S.rates,lines=[];let sub=0,perDay=null,days=null;
+ if(d.mode!=='multi'){const st=draftStart(d)||now();const f=dayFare(st,d.hours);lines.push([`Driver for ${hrs(d.hours)}`,f.base]);sub+=f.base;if(f.night){lines.push([`Night hours (${f.nightH} × ${inr(r.nightPerHour)})`,f.night]);sub+=f.night;}}
+ else{days=d.multi.length;let total=0;d.multi.forEach(x=>{const f=dayFare(combine(x.date,x.time||'10:00'),x.hours);total+=f.base+f.night;});lines.push([`${days} days, ${d.multi.reduce((a,x)=>a+x.hours,0)} hrs in all`,total]);sub+=total;
+  const disc=Math.round(total*r.multiDiscount/100);if(disc&&days>=2){lines.push([`Multi-day saving (${r.multiDiscount}%)`,-disc]);sub-=disc;}}
+ const gst=Math.round(r.fee*.18);lines.push(['Booking fee',r.fee]);lines.push(['GST on booking fee (18%)',gst]);
+ const total=sub+r.fee+gst;if(days)perDay=Math.round(total/days);return {lines,total,perDay,days};
+}
+function dayPrice(x){const f=dayFare(combine(x.date,x.time),x.hours);return Math.round((f.base+f.night)*(1-S.rates.multiDiscount/100));}
+
+function newDraft(mode){
+ const prev=S.draft||{};const a=S.addresses.find(x=>x.city===S.city);
+ const lastCar=prev.make?{make:prev.make,model:prev.model,trans:prev.trans}:{make:'',model:'',trans:''};
+ return Object.assign({mode,hours:mode==='multi'?8:3,date:'',time:'',multi:[],addrId:prev.addrId||(a&&a.id),pass:'self',pName:'',pPhone:'',sameDriver:'',saveCar:true,errors:{},check:null},lastCar);
+}
+function liveZones(){return (CITY_DATA[S.city].zones||[]).filter(z=>zoneLive(S.city,z));}
+function earliest(){const d=new Date(now()+S.config.leadH*H);d.setSeconds(0,0);d.setMinutes(Math.ceil(d.getMinutes()/30)*30);return d.getTime();}
+
+function validate(d){
+ const e={},c=S.config,a=addr(d.addrId);
+ if(!a) e.addr='Choose a pickup address.';
+ else if(!zoneLive(a.city,a.zone)) e.addr=`UC Drive isn't live in ${a.zone} right now. Pick an address in ${liveZones().join(', ')}.`;
+ else if(d.mode==='now'&&!instantLive(a.city,a.zone)) e.addr=`In 1 hr isn't available in ${a.zone} right now. Book for Later instead.`;
+ if(!d.make) e.make='Choose your car’s make.';
+ if(d.make&&!d.model) e.model='Choose the model.';
+ if(!d.trans) e.trans='Choose manual or automatic.';
+ if(d.mode==='later'){
+  if(!d.date) e.date='Choose a date.';
+  if(!d.time) e.time='Choose a start time.';
+  const st=combine(d.date,d.time);
+  if(st&&!e.date&&!e.time){ if(st<now()+c.leadH*H) e.time=`For Later, pick a time at least ${c.leadH} hours away (from ${fDT(earliest())}). Need someone sooner? Use In 1 hr.`; else if(st>now()+c.horizonD*DAY) e.date=`You can book up to ${c.horizonD} days ahead.`; }
+ }
+ if(d.mode==='multi'){
+  if(d.multi.length<c.multiMin) e.days=`Pick at least ${c.multiMin} dates.`;
+  d.multi.forEach((x,i)=>{ if(!x.time) e['t'+i]=`Choose a start time for ${fDate(combine(x.date,'00:00'))}.`; else if(combine(x.date,x.time)<now()+c.leadH*H) e['t'+i]=`${fDate(combine(x.date,'00:00'))}: pick a time at least ${c.leadH} hours from now.`; });
+ }
+ if(d.pass==='other'){ if(!d.pName.trim()) e.pName='Enter the passenger’s name.'; if(!/^[6-9]\d{9}$/.test(d.pPhone.replace(/\D/g,''))) e.pPhone='Enter a 10-digit Indian mobile number.'; }
+ return e;
+}
+
+/* FR-M-05 / FR-M-08 / same-driver check, before payment */
+function check(d){
+ const a=addr(d.addrId),zone=a.zone,type=typeOf(d.make,d.model),out={};
+ const req=d.sameDriver?driver(d.sameDriver):null;
+ if(d.mode==='now'){
+  const list=eligible(S.city,zone,d.trans,type,now(),now()+(d.hours+1)*H,{instant:true});
+  if(!list.length){ out.block={title:'No driver can reach you within an hour',text:`No online driver cleared for ${type} · ${d.trans.toLowerCase()} is free near ${zone} right now.`,later:true}; return out; }
+  if(req && !list.find(x=>x.id===req.id)) out.req={text:`${req.name.split(' ')[0]} isn't available in the next hour.`,free:nextFree(req,d,zone,type)};
+  out.eta=Math.min(55,25+Math.round(Math.random()*20)); d._eta=out.eta; return out;
+ }
+ const slots=d.mode==='later'?[{start:combine(d.date,d.time),hours:d.hours,label:fDT(combine(d.date,d.time))}]:d.multi.map(x=>({start:combine(x.date,x.time),hours:x.hours,label:fDate(combine(x.date,'00:00')),date:x.date}));
+ const bad=slots.filter(s=>atCap(s.start)||!eligible(S.city,zone,d.trans,type,s.start,s.start+s.hours*H).length);
+ if(bad.length){
+  if(d.mode==='later'){ out.block={title:'This slot is fully booked',text:atCap(bad[0].start)?`Every verified driver for ${zone} is already booked then.`:`No driver cleared for ${type} · ${d.trans.toLowerCase()} is free in ${zone} then.`,options:nearest(d,zone,type)}; }
+  else out.block={title:`${bad.length} of ${slots.length} dates are fully booked`,text:bad.map(s=>s.label).join(', ')+'.',dropDates:bad.map(s=>s.date)};
+  return out;
+ }
+ if(req){
+  const notFree=slots.filter(s=>!qualifies(req,S.city,zone,d.trans,type)||busy(req.id,s.start,s.start+s.hours*H));
+  if(notFree.length) out.req={text:d.mode==='later'?`${req.name.split(' ')[0]} is busy then.`:`${req.name.split(' ')[0]} is busy on ${notFree.map(s=>s.label).join(', ')}. Another verified driver will cover ${notFree.length>1?'those days':'that day'}.`,free:d.mode==='later'?nextFree(req,d,zone,type):[]};
+ }
+ return out;
+}
+function nearest(d,zone,type){
+ const st=combine(d.date,d.time),span=d.hours*H,c=[];
+ const ok=ts=>ts>=now()+S.config.leadH*H&&ts<=now()+S.config.horizonD*DAY&&!atCap(ts)&&eligible(S.city,zone,d.trans,type,ts,ts+span).length;
+ for(let k=1;k<=24&&c.length<4;k++)[st-k*30*MIN,st+k*30*MIN].forEach(ts=>{if(ok(ts))c.push(ts);});
+ [1,2].forEach(n=>{if(ok(st+n*DAY))c.push(st+n*DAY);});
+ return [...new Set(c)].sort((a,b)=>Math.abs(a-st)-Math.abs(b-st)).slice(0,4).sort((a,b)=>a-b);
+}
+function nextFree(req,d,zone,type){
+ if(!qualifies(req,S.city,zone,d.trans,type)) return [];
+ const base=d.mode==='now'?earliest():combine(d.date,d.time),span=d.hours*H,out=[];
+ for(let k=0;k<96&&out.length<3;k++){const ts=base+k*30*MIN;if(ts<now()+S.config.leadH*H||atCap(ts))continue;const h=new Date(ts).getHours();if(h<6||h>21)continue;if(!busy(req.id,ts,ts+span))out.push(ts);}
+ return out;
+}
+
+function newId(){let id;do{id='UCD-'+rnd(50200,59999);}while(booking(id));return id;}
+function stamp(b,text){b.timeline.push({t:now(),text});}
+function log(who,text){S.audit.unshift({t:now(),who,text});}
+
+function createBooking(){
+ const d=S.draft,a=addr(d.addrId),zone=a.zone,type=typeOf(d.make,d.model),q=quote(d);
+ let b={id:newId(),mode:d.mode,customer:'You',mine:true,city:S.city,make:d.make,model:d.model,trans:d.trans,type,addrId:d.addrId,zone,
+  passenger:d.pass==='other'?{self:false,name:d.pName.trim(),phone:d.pPhone.trim()}:{self:true},status:'upcoming',price:q,requested:d.sameDriver||null,
+  pin:String(rnd(1000,9999)),timeline:[],tripPhase:null,startPhotos:[],returnPhotos:[],handoverOk:false,paidWith:S.payMethod||'UPI'};
+ let list;
+ if(d.mode==='now'){ b.start=now()+(d._eta||35)*MIN; b.dur=d.hours; b.end=b.start+d.hours*H; b.accepted=false; list=eligible(S.city,zone,d.trans,type,now(),b.end,{instant:true}); }
+ else if(d.mode==='later'){ b.start=combine(d.date,d.time); b.dur=d.hours; b.end=b.start+d.hours*H; list=eligible(S.city,zone,d.trans,type,b.start,b.end); }
+ else { b.days=d.multi.slice().sort((x,y)=>combine(x.date,x.time)-combine(y.date,y.time)).map(x=>({date:x.date,time:x.time,hours:x.hours,status:'scheduled',price:dayPrice(x)}));
+  b.start=combine(b.days[0].date,b.days[0].time); b.dur=b.days[0].hours; b.end=b.start+b.dur*H;
+  // FR-M-02: prefer one driver free on every chosen day
+  const all=eligible(S.city,zone,d.trans,type,b.start,b.end); list=all.filter(dr=>b.days.every(x=>{const s=combine(x.date,x.time);return !busy(dr.id,s,s+x.hours*H);})); if(!list.length) list=all; }
+ let primary=list[0];
+ if(d.sameDriver){const p=list.find(x=>x.id===d.sameDriver);if(p)primary=p;}
+ b.driverId=primary?primary.id:null;
+ if(b.days) b.backupId=(list.find(x=>primary&&x.id!==primary.id)||{}).id||null;
+ b.prefMet=d.sameDriver?!!(primary&&primary.id===d.sameDriver):null;
+ stamp(b,`Paid ${inr(q.total)} via ${b.paidWith}. Booking confirmed.`);
+ if(primary) stamp(b,`${primary.name} assigned (cleared for ${type} · ${d.trans}).${b.backupId?` ${driver(b.backupId).name} held as backup.`:''}`);
+ if(d.sameDriver) stamp(b, b.prefMet?`You asked for ${driver(d.sameDriver).name} again.`:`You asked for ${driver(d.sameDriver).name}; not free, so ${primary?primary.name:'another driver'} was assigned.`);
+ if(!b.passenger.self) stamp(b,`Trip details sent by SMS to ${b.passenger.name}.`);
+ if(d.saveCar&&!S.myCars.find(c=>c.make===d.make&&c.model===d.model&&c.trans===d.trans)) S.myCars.push({id:'c'+(S.myCars.length+1),make:d.make,model:d.model,trans:d.trans});
+ S.bookings.unshift(b); log('System',`${b.id} (${MODE_LABEL[b.mode]}) ${zone}, ${d.make} ${d.model}: ${primary?primary.name+' assigned':'unassigned'}${d.sameDriver?`; repeat request ${b.prefMet?'met':'not met'}`:''}.`);
+ if(b.mode==='now'){ // driver accepts in the partner app; auto-accept after 4 s in the prototype
+  setTimeout(()=>{const B=booking(b.id);if(B&&B.mode==='now'&&!B.accepted&&B.driverId&&B.status==='upcoming'){acceptInstant(B,true);render();}},4000); }
+ return b;
+}
+function acceptInstant(b,auto){b.accepted=true;stamp(b,`${driver(b.driverId).name} accepted. Arriving by ${fTime(b.start)}.`);log(auto?'System':'Driver',`${b.id}: ${driver(b.driverId).name} accepted the In 1 hr trip.`);if(S.view==='customer')toast(`${driver(b.driverId).name.split(' ')[0]} is on the way`);}
+
+/* FR-M-06 */
+function driverDrops(b,why){
+ const old=driver(b.driverId);stamp(b,`${old.name} ${why}.`);
+ const list=eligible(b.city,b.zone,b.trans,b.type,b.mode==='now'?now():b.start,b.end,{instant:b.mode==='now',ignore:b.id}).filter(x=>x.id!==old.id&&x.id!==b.backupId);
+ if(b.backupId){const bk=driver(b.backupId);b.driverId=bk.id;b.backupId=list[0]?list[0].id:null;stamp(b,`Backup ${bk.name} took over.`);log('System',`${b.id}: ${old.name} ${why}; backup ${bk.name} promoted.`);return bk;}
+ if(list[0]){b.driverId=list[0].id;b.accepted=b.mode==='now'?false:b.accepted;stamp(b,`${list[0].name} reassigned automatically.`);log('System',`${b.id}: ${old.name} ${why}; reassigned to ${list[0].name}.`);
+  if(b.mode==='now')setTimeout(()=>{const B=booking(b.id);if(B&&!B.accepted&&B.driverId){acceptInstant(B,true);render();}},4000);return list[0];}
+ b.driverId=null;stamp(b,'No matching driver free yet. UC operations is on it.');log('System',`${b.id}: ${old.name} ${why}; no matching driver. Ops alerted.`);return null;
+}
+
+/* ============ navigation ============ */
+function go(screen,params){S.history.push({screen:S.screen,current:S.current});S.screen=screen;if(params&&params.id)S.current=params.id;S.modal=null;render(true);}
+function back(){const h=S.history.pop();if(h){S.screen=h.screen;S.current=h.current;}else S.screen='home';S.modal=null;render(true);}
+function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;$('#toasts').appendChild(el);setTimeout(()=>el.remove(),4200);}
+
+/* ============ customer screens ============ */
+const TRACE={
+ home:{t:'UC home, UC Drive next to InstaHelp',fr:[['FR-B-01','Tile shows only in the six launch cities while ops has the city on'],['FR-O-04','Switch a city off in the Ops console and the tile disappears'],['Repeat','Past customers get a "book again" shortcut']],tip:'Switch the city to Pune to see the tile hidden.'},
+ drive:{t:'Three ways to book',fr:[['In 1 hr','Driver reaches within 60 minutes; drag to set hours'],['Later','Date and time are mandatory; drag to set hours'],['Multi-day','Pick several dates, each with its own time and hours'],['FR-B-03','Whole hours, 1–12']]},
+ book:{t:'Booking form',fr:[['Car','Make, model and transmission are mandatory in all three; the model sets the car type'],['FR-M-01','Only drivers cleared for that car type and transmission are matched'],['FR-M-07','Repeat users can ask for the same driver'],['FR-B-02','Out-of-zone or paused areas are rejected'],['FR-B-04','Later: 2 hours to 14 days ahead'],['FR-B-08','Book for someone else; they get the SMS']],tip:'To see the sold-out flow, pick a Friday or Saturday from 9 PM in Later or Multi-day.'},
+ review:{t:'Review before payment',fr:[['FR-M-05','Full slot is shown before payment with the nearest open times'],['FR-M-07','If the requested driver is busy, see when they are free'],['FR-P-01','Itemised price'],['FR-P-02','Multi-day total with per-day figure'],['FR-P-03','No surge, price locked once paid'],['FR-B-10','Cancellation policy before payment']]},
+ confirmed:{t:'Confirmed with a named driver',fr:[['FR-B-05','Booking ID right after payment'],['FR-M-04','Name, photo, rating, trips and verification, plus their car experience'],['FR-M-02/03','Multi-day: one primary driver and a backup']]},
+ bookings:{t:'Your bookings',fr:[['FR-B-10','Cancel or reschedule'],['FR-M-07','Book the same driver again from a past trip'],['FR-C-03','Claim status on the trip']]},
+ detail:{t:'Booking detail',fr:[['Multi-day','Add another day when you need it; skip or move a day'],['FR-B-10','Refund shown before cancelling'],['FR-M-06','If the driver drops out, auto-reassign and tell the customer'],['NFR-10','Masked calls']],tip:'Use the prototype box to jump to trip day or simulate the driver dropping out.'},
+ trip:{t:'Trip day',fr:[['FR-S-04','Six start photos; customer confirms'],['FR-S-06','Trip start PIN'],['FR-S-01','Live location'],['FR-S-02','Share with up to 3 family contacts'],['FR-S-03','SOS to the safety desk'],['NFR-07','SOS falls back to a phone call'],['FR-P-05','Overtime per started 30 minutes'],['FR-S-05','Return photos; confirm or flag damage']],tip:'Driver steps happen in the Partner app, or press "Simulate driver step".'},
+ rate:{t:'Rate the driver',fr:[['FR-R-01','1–5 rating and a comment'],['FR-M-07','A good trip makes this driver bookable again'],['FR-D-06','Low ratings suspend a driver for review']]},
+ claim:{t:'Damage claim',fr:[['FR-C-01','Photos attach automatically'],['FR-C-02','Sent to the insurer with trip and driver IDs'],['FR-C-03','Status tracking']]},
+};
+const bar=(title,act='back')=>`<div class="bar"><button class="icon-btn" data-act="${act}" aria-label="Back">${ic('back')}</button><h1 tabindex="-1" class="scr-h">${esc(title)}</h1></div>`;
+const bottomNav=active=>`<nav class="bottom-nav" aria-label="App">${[['home','UC',`<span class="uc-mark" style="width:26px;height:26px;font-size:.6rem;border-radius:7px" aria-hidden="true">UC</span>`],['insta','InstaHelp',ic('bolt',24)],['drive','Drive',ic('wheel',24)],['beauty','Beauty',ic('face',24)],['native','Native',ic('bag',24)],['bookings','Bookings',ic('list',24)]].map(x=>`<button data-act="${['insta','beauty','native'].includes(x[0])?'other-svc':'nav'}" data-to="${x[0]}" ${active===x[0]?'aria-current="page"':''}>${x[2]}${x[1]}</button>`).join('')}</nav>`;
+
+function scrHome(){
+ const live=cityLive(S.city),cities=[...LAUNCH,'Pune','Kolkata'];
+ const up=S.bookings.filter(b=>b.mine&&b.status==='upcoming').sort((a,b)=>a.start-b.start)[0];
+ const past=pastDrivers()[0];
+ const svc=(l,i,eta)=>`<button class="svc" data-act="other-svc"><span class="ic">${ic(i,38)}${eta?`<span class="eta">${eta}</span>`:''}</span><span class="l">${l}</span></button>`;
+ return `<div class="grow"><div class="app-head">
+  <div class="row-b"><div class="city">${ic('pin',18)}<label class="sr" for="city-sel">City</label><select id="city-sel" data-change="city">${cities.map(c=>`<option ${c===S.city?'selected':''}>${c}</option>`).join('')}</select></div>
+   <div class="hdr-btns"><button class="hdr-btn" data-act="open-wallet" aria-label="Wallet, UC Cash ${inr(S.wallet.cash)}">${ic('wallet',24)}</button><button class="hdr-btn" data-act="open-profile" aria-label="Account">${ic('user',24)}</button></div></div>
+  <h1 class="sr scr-h" tabindex="-1">Urban Company home</h1>
+  <button class="search" data-act="other-svc">${ic('search',22)}<span>Search for ‘Facial’</span></button>
+  <div class="promos">
+   <button class="promo" data-act="other-svc"><span class="art">${ic('home',40)}</span><b>InstaHelp</b></button>
+   ${live?`<button class="promo" data-act="nav" data-to="drive"><span class="art"><span class="badge">New</span>${ic('car',44)}</span><b>UC Drive</b></button>`:''}
+   <button class="promo" data-act="other-svc"><span class="art"><span class="badge">25% off</span>${ic('face',40)}</span><b>Salon &amp; grooming</b></button>
+   <button class="promo" data-act="other-svc"><span class="art"><span class="badge">Up to 20% off</span>${ic('vac',40)}</span><b>Cleaning</b></button>
+   <button class="promo" data-act="other-svc"><span class="art">${ic('panel',40)}</span><b>Festive wall panel</b></button>
+  </div></div>
+ <div class="app-body">
+  ${!live?`<div class="notice">${ic('info',20)}<p class="small">UC Drive is live in Bengaluru, Delhi, Gurugram, Hyderabad, Mumbai and Chennai. It isn't available in ${esc(S.city)} yet.</p></div>`:''}
+  <div class="grid4">
+   ${svc('InstaHelp','user')}
+   ${live?`<button class="svc drive" data-act="nav" data-to="drive" aria-label="UC Drive, new. A verified driver for your own car"><span class="ic">${ic('wheel',40)}<span class="eta">New</span></span><span class="l"><b>UC Drive</b></span></button>`:''}
+   ${svc("Women's Salon &amp; Spa",'face','44 mins')}${svc("Men's Salon &amp; Massage",'user','44 mins')}
+   ${svc('Cleaning &amp; Pest Control','vac','55 mins')}${svc('Wall makeover','panel')}${svc('Home Painting &amp; Upgrade','brush')}${svc('AC &amp; Appliance Repair','ac','44 mins')}
+   ${svc('Electrician, Plumber &amp; Carpenter','tool','73 mins')}
+  </div>
+  ${live&&past?`<button class="list-btn" data-act="book-again" data-d="${past.id}"><span class="avatar sm" aria-hidden="true">${initials(past.name)}</span><span style="flex:1;min-width:0"><b>Book ${esc(past.name)} again</b><br><span class="small muted">Drove your ${esc(lastTripWith(past.id).model)} on ${fDate(lastTripWith(past.id).start)} · ${past.rating} ★</span></span>${ic('fwd',20)}</button>`:''}
+  ${live?`<section class="stack"><h2 class="sec-title">In the spotlight</h2>
+   <button class="spot" data-act="nav" data-to="drive"><span class="eyebrow" style="color:inherit;opacity:.7">New · UC Drive</span><h3>Your car.<br>A UC-verified driver.</h3><p>In an hour, later, or for days at a time. Matched to your car's make and gearbox.</p><span class="row b">Book a driver ${ic('fwd',18)}</span></button></section>`:''}
+  <section class="stack"><h2 class="sec-title">Native Smart Products</h2><div class="grid4">${svc('Native Water Purifier','drop')}${svc('Native Smart Locks','lock')}</div></section>
+ </div></div>
+ ${up?`<button class="upnext" data-act="open-booking" data-id="${up.id}"><span class="clock">${ic('clock',22)}</span><span style="flex:1;min-width:0"><b>UC Drive · ${MODE_LABEL[up.mode]}</b><br><span class="muted small">${up.mode==='now'?'Arriving by '+fTime(up.start):fDT(up.start)}</span></span><span class="pill">View</span></button>`:''}
+ ${bottomNav('home')}`;
+}
+
+function scrDrive(){
+ const past=pastDrivers()[0];
+ const m=[['now','bolt','In 1 hr','A driver at your door within the hour.','Drag to choose hours'],['later','cal','Later','Pick a date and time, up to 14 days ahead.','Date, time and hours'],['multi','cals','Multi-day','Choose several dates. Add more days whenever you need.',`${S.rates.multiDiscount}% off`]];
+ return `<div class="grow">${bar('UC Drive','nav-home')}
+ <div class="app-body">
+  <p class="lead">When do you need a driver?</p>
+  <div class="modes">${m.map(x=>`<button class="mode" data-act="start-book" data-mode="${x[0]}"><span class="ic">${ic(x[1],26)}</span><span class="stack-s" style="gap:2px"><h3>${x[2]}</h3><span class="small muted">${x[3]}</span><span class="xs b">${x[4]}</span></span><span class="go">${ic('fwd',20)}</span></button>`).join('')}</div>
+  ${past?`<div class="card stack-s"><span class="eyebrow">Book again</span><div class="driver"><span class="avatar sm" aria-hidden="true">${initials(past.name)}</span><span class="small"><b>${esc(past.name)}</b><br>You can ask for him in any of the three options.</span></div></div>`:''}
+  <div class="card stack-s"><h2 style="font-size:1rem">Every UC Drive trip</h2><ul class="small stack-s" style="margin:0;padding-left:18px">
+   <li>Driver matched to your car's type and gearbox</li><li>ID, background, driving test and training checked</li><li>Photos of your car at handover and return</li><li>Live tracking for family, plus SOS</li><li>From ${inr(S.rates.hourFirst)} for 1 hr. No surge.</li></ul></div>
+ </div></div>${bottomNav('drive')}`;
+}
+
+const fe=(e,k)=>e[k]?`<p class="err" id="err-${k}">${ic('alert',16)}<span>${esc(e[k])}</span></p>`:'';
+const inv=(e,k)=>e[k]?`aria-invalid="true" aria-describedby="err-${k}"`:'';
+function timeOpts(sel){let o=`<option value="">Select time</option>`;for(let h=0;h<24;h++)for(const m of[0,30]){const v=pad(h)+':'+pad(m);o+=`<option value="${v}" ${v===sel?'selected':''}>${new Date(2026,0,1,h,m).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})}</option>`;}return o;}
+function dragHTML(id,val,label,attrs){const pct=((val-S.config.minH)/(S.config.maxH-S.config.minH))*100;
+ return `<div class="drag"><div class="drag-top"><label for="${id}" class="b">${label}</label><output for="${id}" class="drag-val" id="${id}-out">${val}<small>hr${val>1?'s':''}</small></output></div>
+ <input type="range" id="${id}" min="${S.config.minH}" max="${S.config.maxH}" step="1" value="${val}" style="--fill:${pct}%" aria-valuetext="${hrs(val)}" ${attrs}>
+ <div class="ticks" aria-hidden="true"><span>${S.config.minH}</span><span>${Math.round(S.config.maxH/4)}</span><span>${Math.round(S.config.maxH/2)}</span><span>${Math.round(S.config.maxH*3/4)}</span><span>${S.config.maxH} hrs</span></div></div>`;}
+
+function scrBook(){
+ const d=S.draft,e=d.errors||{},c=S.config,n=Object.keys(e).length;
+ const myA=S.addresses.filter(a=>a.city===S.city);
+ const type=typeOf(d.make,d.model);
+ const past=pastDrivers();
+ let when='';
+ if(d.mode==='now'){
+  when=`<section class="stack"><div class="notice">${ic('bolt',20)}<p class="small"><b>Driver at your door within an hour.</b> We'll show the exact arrival time before you pay.</p></div>${dragHTML('hrs-now',d.hours,'How many hours do you need the driver?','data-drag="hours"')}</section>`;
+ } else if(d.mode==='later'){
+  const minD=isoDate(now()),maxD=isoDate(now()+c.horizonD*DAY);
+  when=`<fieldset class="stack"><legend>When <span class="req">Required</span></legend>
+   <div class="two"><label class="f" for="f-date">Date<input type="date" id="f-date" min="${minD}" max="${maxD}" value="${esc(d.date)}" data-bind="date" required ${inv(e,'date')}></label>
+   <label class="f" for="f-time">Start time<select id="f-time" data-bind="time" required ${inv(e,'time')}>${timeOpts(d.time)}</select></label></div>
+   ${fe(e,'date')}${fe(e,'time')}<p class="hint">At least ${c.leadH} hours and up to ${c.horizonD} days ahead.</p>
+   ${dragHTML('hrs-later',d.hours,'Hours needed','data-drag="hours"')}</fieldset>`;
+ } else {
+  const days=[];for(let k=1;k<=c.horizonD;k++){const t=new Date(now()+k*DAY);t.setHours(0,0,0,0);days.push(t);}
+  const lead=(days[0].getDay()+6)%7;
+  const sel=new Set(d.multi.map(x=>x.date));
+  when=`<fieldset class="stack"><legend>Pick your dates <span class="req">Required</span></legend>
+   <p class="small muted">Tap every day you need a driver. Each day gets its own start time and hours.</p>
+   <div class="cal" role="group" aria-label="Next ${c.horizonD} days">${['Mo','Tu','We','Th','Fr','Sa','Su'].map(w=>`<span class="wd" aria-hidden="true">${w}</span>`).join('')}
+    ${'<span class="day blank" aria-hidden="true"></span>'.repeat(lead)}
+    ${days.map(t=>{const iso=isoDate(t);return `<button type="button" class="day" data-act="toggle-day" data-date="${iso}" aria-pressed="${sel.has(iso)}" aria-label="${fDate(t)}">${t.getDate()}<small>${t.toLocaleDateString('en-IN',{month:'short'})}</small></button>`;}).join('')}</div>
+   ${fe(e,'days')}
+   ${d.multi.length?`<div class="row-b" style="flex-wrap:wrap"><span class="small b">${d.multi.length} day${d.multi.length>1?'s':''} selected · ${d.multi.reduce((a,x)=>a+x.hours,0)} hrs</span>${d.multi.length>1?`<button type="button" class="btn-link small" data-act="copy-first">Use first day's time and hours for all</button>`:''}</div>`:''}
+   ${d.multi.map((x,i)=>`<div class="dayrow"><div class="row-b"><b>${fDate(combine(x.date,'00:00'))}</b><button type="button" class="icon-btn" data-act="toggle-day" data-date="${x.date}" aria-label="Remove ${fDate(combine(x.date,'00:00'))}">${ic('x',18)}</button></div>
+     <label class="f" for="m-time-${i}">Start time<select id="m-time-${i}" data-mtime="${i}" ${inv(e,'t'+i)}>${timeOpts(x.time)}</select></label>${fe(e,'t'+i)}
+     ${dragHTML('m-hrs-'+i,x.hours,'Hours',`data-drag="multi" data-i="${i}"`)}</div>`).join('')}
+   <p class="hint">Need more days later? Add them from the booking at any time.</p></fieldset>`;
+ }
+ const models=d.make?Object.keys(CARS[d.make]):[];
+ const carSec=`<fieldset class="stack section"><legend>Your car <span class="req">Required</span></legend>
+  <p class="small muted">We send a driver experienced with your type of car and gearbox.</p>
+  ${S.myCars.length?`<div class="chips" role="group" aria-label="Your saved cars">${S.myCars.map(cr=>`<button type="button" class="chip" data-act="pick-car" data-id="${cr.id}" aria-pressed="${d.make===cr.make&&d.model===cr.model&&d.trans===cr.trans}">${ic('car',18)} ${esc(cr.make.split(' ')[0])} ${esc(cr.model)} · ${cr.trans==='Automatic'?'Auto':'Manual'}</button>`).join('')}</div>`:''}
+  <div class="two"><label class="f" for="f-make">Make<select id="f-make" data-change="make" ${inv(e,'make')}><option value="">Select make</option>${Object.keys(CARS).map(m=>`<option ${d.make===m?'selected':''}>${m}</option>`).join('')}</select></label>
+  <label class="f" for="f-model">Model<select id="f-model" data-change="model" ${d.make?'':'disabled'} ${inv(e,'model')}><option value="">${d.make?'Select model':'Pick make first'}</option>${models.map(m=>`<option ${d.model===m?'selected':''}>${m}</option>`).join('')}</select></label></div>
+  ${fe(e,'make')}${fe(e,'model')}
+  <div><span class="b small" id="trans-l">Transmission</span><div class="seg" role="group" aria-labelledby="trans-l" style="margin-top:6px">${['Manual','Automatic'].map(t=>`<button type="button" data-act="trans" data-v="${t}" aria-pressed="${d.trans===t}">${t}</button>`).join('')}</div></div>${fe(e,'trans')}
+  ${type&&d.trans?`<p class="pill solid" style="justify-self:start">${ic('check',14)} Matching drivers cleared for ${type} · ${d.trans}</p>`:''}
+ </fieldset>`;
+ const same=past.length?`<fieldset class="stack section"><legend>Your previous driver</legend>
+  ${past.map(p=>{const lt=lastTripWith(p.id);return `<label class="same"><input type="checkbox" data-change="same" value="${p.id}" ${d.sameDriver===p.id?'checked':''}><span class="avatar sm" aria-hidden="true">${initials(p.name)}</span><span style="min-width:0"><b>Book ${esc(p.name)} again</b><br><span class="small muted">${p.rating} ★ · drove your ${esc(lt.model)} on ${fDate(lt.start)}</span></span></label>`;}).join('')}
+  <p class="hint">We'll check he's free before you pay. If not, we'll show when he is.</p></fieldset>`:'';
+ const addrSec=`<fieldset class="stack section"><legend>Pickup address <span class="req">Required</span></legend><div class="stack-s">
+  ${myA.map(a=>{const ok=zoneLive(a.city,a.zone);return `<label class="radio-card"><input type="radio" name="addr" value="${a.id}" data-bind="addrId" ${d.addrId===a.id?'checked':''}><span><b>${esc(a.label)}</b> ${ok?'':'<span class="pill dash">Not served</span>'}<br><span class="small muted">${esc(a.line)}, ${esc(a.zone)}</span></span></label>`;}).join('')}
+  ${d.newAddr?newAddrForm(d.newAddr):`<button type="button" class="btn-link" data-act="add-addr" style="justify-self:start">${ic('plus',18)} Add an address</button>`}${fe(e,'addr')}</div></fieldset>`;
+ const pass=`<fieldset class="section"><legend>Who's travelling?</legend><div class="seg" role="group" aria-label="Passenger"><button type="button" data-act="pass" data-v="self" aria-pressed="${d.pass==='self'}">Me</button><button type="button" data-act="pass" data-v="other" aria-pressed="${d.pass==='other'}">Someone else</button></div>
+  ${d.pass==='other'?`<div class="stack-s" style="margin-top:10px"><p class="small muted">They get the driver's details by SMS. You keep tracking and SOS alerts.</p>
+   <label class="f" for="f-pname">Passenger name<input type="text" id="f-pname" autocomplete="off" value="${esc(d.pName)}" data-bind="pName" ${inv(e,'pName')}></label>${fe(e,'pName')}
+   <label class="f" for="f-pphone">Passenger mobile<input type="tel" id="f-pphone" inputmode="numeric" autocomplete="off" placeholder="98450 22817" value="${esc(d.pPhone)}" data-bind="pPhone" ${inv(e,'pPhone')}></label>${fe(e,'pPhone')}</div>`:''}</fieldset>`;
+ const est=(d.mode!=='multi'||d.multi.length)?quote(d).total:null;
+ return `<div class="grow">${bar(MODE_LABEL[d.mode])}
+ <form class="app-body" id="book-form" novalidate>
+  ${n?`<div class="notice strong" role="alert" tabindex="-1" id="err-summary">${ic('alert',20)}<div><b>Fix ${n} thing${n>1?'s':''} to continue</b><ul class="small" style="margin:4px 0 0;padding-left:18px">${Object.values(e).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div></div>`:''}
+  ${when}${carSec}${same}${addrSec}${pass}
+ </form></div>
+ <div class="footer-cta">${est!=null?`<div class="sum"><span>Estimated total</span><b class="num" id="est">${inr(est)}</b></div>`:''}<button class="btn btn-primary full" data-act="to-review">Check availability and price</button></div>`;
+}
+function newAddrForm(n){const e=n.errors||{},cd=CITY_DATA[S.city];return `<div class="card stack-s" style="background:var(--tile);border-color:transparent">
+ <label class="f" for="na-label">Label<input type="text" id="na-label" placeholder="Home, Office" value="${esc(n.label)}" data-bind="newAddr.label" ${inv(e,'label')}></label>${fe(e,'label')}
+ <label class="f" for="na-line">House, building and street<input type="text" id="na-line" value="${esc(n.line)}" data-bind="newAddr.line" ${inv(e,'line')}></label>${fe(e,'line')}
+ <label class="f" for="na-zone">Area <span class="hint">Stands in for the map pin</span><select id="na-zone" data-bind="newAddr.zone" ${inv(e,'zone')}><option value="">Choose area</option>${cd.zones.concat(cd.outside).map(z=>`<option ${n.zone===z?'selected':''}>${z}</option>`).join('')}</select></label>${fe(e,'zone')}
+ <div class="row"><button type="button" class="btn btn-primary btn-sm" data-act="save-addr">Save address</button><button type="button" class="btn btn-ghost btn-sm" data-act="cancel-addr">Cancel</button></div></div>`;}
+
+function scrReview(){
+ const d=S.draft,ck=d.check||{},q=quote(d),a=addr(d.addrId),type=typeOf(d.make,d.model),c=S.config,blocked=!!ck.block;
+ let top='';
+ if(ck.block){const b=ck.block;top=`<div class="notice outline" role="alert">${ic('alert',20)}<div class="stack-s"><b>${esc(b.title)}</b><p class="small">${esc(b.text)} You haven't been charged.</p>
+  ${b.options?(b.options.length?`<p class="small b">Nearest open times</p><div class="wrapr">${b.options.map(ts=>`<button class="btn btn-ghost btn-sm" data-act="pick-slot" data-ts="${ts}">${fDT(ts)}</button>`).join('')}</div>`:'<p class="small">Nothing open nearby. Try another day.</p>'):''}
+  ${b.dropDates?`<button class="btn btn-ghost btn-sm" data-act="drop-dates" style="justify-self:start">Remove those dates</button>`:''}
+  ${b.later?`<button class="btn btn-ghost btn-sm" data-act="switch-later" style="justify-self:start">Book for Later instead</button>`:''}
+  <button class="btn-link" data-act="back" style="justify-self:start">Change details</button></div></div>`;}
+ else if(ck.req){top=`<div class="notice outline" role="status">${ic('repeat',20)}<div class="stack-s"><b>${esc(ck.req.text)}</b>
+  ${ck.req.free&&ck.req.free.length?`<p class="small">He's free at:</p><div class="wrapr">${ck.req.free.map(ts=>`<button class="btn btn-ghost btn-sm" data-act="pick-free" data-ts="${ts}">${fDT(ts)}</button>`).join('')}</div>`:''}
+  <p class="small">Or continue and we'll assign another verified driver for your ${esc(type)}.</p></div></div>`;}
+ else if(d.sameDriver){top=`<div class="notice">${ic('check',20)}<p class="small"><b>${esc(driver(d.sameDriver).name)} is free.</b> He'll be your driver.</p></div>`;}
+ const when=d.mode==='now'?`Arrives in about ${ck.eta||35} min, around ${fTime(now()+(ck.eta||35)*MIN)}`:d.mode==='later'?fDT(combine(d.date,d.time)):'';
+ return `<div class="grow">${bar('Review and pay')}
+ <div class="app-body">${top}
+  <section class="card stack"><div class="row-b"><h2 style="font-size:1.05rem">${MODE_LABEL[d.mode]}</h2><span class="pill">${esc(S.city)}</span></div>
+   <dl class="stack-s small" style="margin:0">
+    <div class="row-b"><dt class="muted">Pickup</dt><dd style="margin:0;text-align:right">${esc(a.label)}, ${esc(a.zone)}</dd></div>
+    ${d.mode!=='multi'?`<div class="row-b"><dt class="muted">${d.mode==='now'?'Arrival':'Start'}</dt><dd style="margin:0;text-align:right">${when}</dd></div><div class="row-b"><dt class="muted">Hours</dt><dd style="margin:0">${hrs(d.hours)}</dd></div>`:''}
+    <div class="row-b"><dt class="muted">Car</dt><dd style="margin:0;text-align:right">${esc(d.make)} ${esc(d.model)}<br><span class="muted">${type} · ${d.trans}</span></dd></div>
+    ${d.sameDriver?`<div class="row-b"><dt class="muted">Requested driver</dt><dd style="margin:0">${esc(driver(d.sameDriver).name)}</dd></div>`:''}
+    <div class="row-b"><dt class="muted">Passenger</dt><dd style="margin:0;text-align:right">${d.pass==='other'?esc(d.pName):'You'}</dd></div></dl>
+   ${d.mode==='multi'?`<ul class="stack-s small" style="list-style:none;margin:0;padding:10px 0 0;border-top:1px solid var(--line)">${d.multi.slice().sort((x,y)=>combine(x.date,x.time)-combine(y.date,y.time)).map(x=>`<li class="row-b"><span>${fDate(combine(x.date,'00:00'))}</span><span class="num">${fTime(combine(x.date,x.time))} · ${hrs(x.hours)}</span></li>`).join('')}</ul>`:''}</section>
+  <section class="card stack" aria-labelledby="ph"><div class="row-b"><h2 id="ph" style="font-size:1.05rem">Price</h2><span class="pill solid">No surge</span></div>
+   <div class="price num">${q.lines.map(l=>`<div class="l"><span>${esc(l[0])}</span><span>${l[1]<0?'−'+inr(-l[1]):inr(l[1])}</span></div>`).join('')}<div class="l t"><span>Total</span><span>${inr(q.total)}</span></div>${q.perDay?`<div class="l small muted"><span>Works out to</span><span>${inr(q.perDay)} a day</span></div>`:''}</div>
+   <p class="small muted">Locked once you pay. Overtime: ${inr(S.rates.overtime)} per started ${c.overtimeBlock} minutes past your hours.</p></section>
+  <section class="card stack-s"><h2 style="font-size:1rem">Cancellation policy</h2><ul class="small stack-s" style="margin:0;padding-left:18px">
+   ${d.mode==='now'?'<li>Free for 5 minutes after booking</li><li>50% refund after that, until the driver arrives</li>':`<li>Free up to ${c.cancelFreeH} hours before start</li><li>50% refund inside ${c.cancelFreeH} hours</li>`}<li>No refund once the driver has arrived</li>${d.mode==='multi'?'<li>Skip or move any single day under the same rules</li>':''}</ul></section>
+ </div></div>
+ <div class="footer-cta"><button class="btn btn-primary full" data-act="open-pay" ${blocked?'disabled':''}>Pay ${inr(q.total)}</button></div>`;
+}
+
+function driverCard(dr,label){
+ if(!dr) return `<div class="notice">${ic('clock',20)}<p class="small"><b>Finding your driver.</b> UC operations has been alerted.</p></div>`;
+ return `<div class="driver"><span class="avatar" aria-hidden="true">${initials(dr.name)}</span><div class="stack-s" style="gap:2px;min-width:0">${label?`<span class="eyebrow">${label}</span>`:''}<b>${esc(dr.name)}</b>
+  <span class="small muted num">${starFill(13)} ${dr.rating||'New'} · ${dr.trips} trips · ${dr.years} yrs driving</span>
+  <span class="small muted">Drives ${esc(dr.types.join(', '))} · ${esc(dr.skills.join(' & '))}</span>
+  <span class="verified">${ic('shield',16)} Verified and Trained</span></div></div>`;
+}
+function scrConfirmed(){
+ const b=booking(S.current),dr=driver(b.driverId);
+ return `<div class="grow"><div class="bar"><span style="width:8px"></span><h1 tabindex="-1" class="scr-h">Booking confirmed</h1><button class="icon-btn" data-act="nav-home" aria-label="Close">${ic('x')}</button></div>
+ <div class="app-body">
+  <div class="notice strong" role="status">${ic('check',22)}<div><b>You're booked.</b><p class="small">Booking <span class="num b">${b.id}</span> · ${inr(b.price.total)} paid via ${esc(b.paidWith)}</p></div></div>
+  ${b.mode==='now'&&dr?(b.accepted?`<div class="notice">${ic('car',20)}<p class="small"><b>${esc(dr.name.split(' ')[0])} accepted</b> and will reach you by ${fTime(b.start)}.</p></div>`:`<div class="notice">${ic('clock',20)}<p class="small"><b>Waiting for ${esc(dr.name.split(' ')[0])} to accept.</b> This usually takes under a minute.</p></div>`):''}
+  <section class="card stack"><span class="eyebrow">Your driver</span>${driverCard(dr,b.days?'Primary driver, all days':'')}
+   ${b.prefMet===true?`<p class="pill solid" style="justify-self:start">${ic('repeat',14)} Same driver as last time</p>`:''}${b.prefMet===false?`<p class="small muted">Your previous driver wasn't free, so we matched another driver cleared for your ${esc(b.type)}.</p>`:''}
+   ${b.backupId?`<hr class="hr">${driverCard(driver(b.backupId),'Backup driver')}`:''}</section>
+  <section class="card stack-s small">
+   <div class="row-b"><span class="muted">${b.mode==='now'?'Arrives by':b.days?'First day':'Starts'}</span><b>${b.mode==='now'?fTime(b.start):fDT(b.start)}</b></div>
+   ${b.days?`<div class="row-b"><span class="muted">Days</span><b>${b.days.length}</b></div>`:`<div class="row-b"><span class="muted">Hours</span><b>${hrs(b.dur)}</b></div>`}
+   <div class="row-b"><span class="muted">Car</span><b>${esc(b.make)} ${esc(b.model)} · ${b.trans}</b></div>
+   <div class="row-b"><span class="muted">Trip PIN</span><b class="num">${b.pin}</b></div></section>
+  ${b.mode==='now'?`<button class="btn btn-primary" data-act="track-now" data-id="${b.id}">Track driver</button>`:''}
+  <button class="btn ${b.mode==='now'?'btn-ghost':'btn-primary'}" data-act="open-booking" data-id="${b.id}">View booking</button>
+ </div></div>`;
+}
+function statusPill(b){
+ if(b.status==='cancelled')return '<span class="pill dash">Cancelled</span>';
+ if(b.status==='completed')return '<span class="pill soft">Completed</span>';
+ if(b.tripPhase&&b.tripPhase!=='done')return '<span class="pill solid"><span class="dot" style="background:currentColor"></span> On trip</span>';
+ if(!b.driverId)return '<span class="pill dash">Finding driver</span>';
+ if(b.mode==='now'&&!b.accepted)return '<span class="pill dash">Awaiting driver</span>';
+ return '<span class="pill">Upcoming</span>';
+}
+function scrBookings(){
+ const mine=S.bookings.filter(b=>b.mine),up=mine.filter(b=>b.status==='upcoming').sort((a,b)=>a.start-b.start),past=mine.filter(b=>b.status!=='upcoming').sort((a,b)=>b.start-a.start);
+ const item=b=>{const dr=driver(b.driverId);return `<div class="stack-s"><button class="list-btn" data-act="open-booking" data-id="${b.id}"><span class="avatar sm" aria-hidden="true">${dr?initials(dr.name):'?'}</span><span style="flex:1;min-width:0" class="stack-s"><span class="row-b"><b>${MODE_LABEL[b.mode]}</b>${statusPill(b)}</span>
+  <span class="small muted">${b.mode==='now'&&b.status==='upcoming'?'Arrives by '+fTime(b.start):fDT(b.start)}${b.days?` · ${b.days.length} days`:''} · ${esc(b.model)}</span><span class="small">${dr?esc(dr.name):'Driver pending'}</span>
+  ${claimOf(b)?`<span class="small b">Claim: ${claimLabel(claimOf(b).status)}</span>`:''}</span></button>
+  ${b.status==='completed'&&dr&&dr.status==='verified'?`<button class="btn-link small" data-act="book-again" data-d="${dr.id}" style="justify-self:start">${ic('repeat',16)} Book ${esc(dr.name.split(' ')[0])} again</button>`:''}</div>`;};
+ return `<div class="grow"><div class="bar"><span style="width:8px"></span><h1 tabindex="-1" class="scr-h">Bookings</h1></div>
+ <div class="app-body"><section class="stack"><h2 class="sec-title">Upcoming</h2>${up.length?up.map(item).join(''):'<p class="muted">No upcoming UC Drive bookings.</p>'}</section>
+  <section class="stack"><h2 class="sec-title">Past</h2>${past.length?past.map(item).join(''):'<p class="muted">Nothing here yet.</p>'}</section>
+  <button class="btn btn-primary" data-act="nav" data-to="drive">Book a driver</button></div></div>${bottomNav('bookings')}`;
+}
+function refundFor(b,amount){
+ if(b.tripPhase&&b.tripPhase!=='arriving')return {amt:0,why:'The driver has arrived, so this is no longer refundable.'};
+ if(b.mode==='now'){ if(now()-(b.bookedAt||0)<5*MIN)return {amt:amount,why:'Within 5 minutes of booking: full refund.'}; return {amt:Math.round(amount/2),why:'In 1 hr booking, driver already on the way: 50% refund.'}; }
+ if((b.start-now())/H>=S.config.cancelFreeH)return {amt:amount,why:`More than ${S.config.cancelFreeH} hours before start: full refund.`};
+ return {amt:Math.round(amount/2),why:`Within ${S.config.cancelFreeH} hours of start: 50% refund.`};
+}
+function scrDetail(){
+ const b=booking(S.current);if(!b)return scrBookings();
+ const dr=driver(b.driverId),a=addr(b.addrId),cl=claimOf(b),live=b.status==='upcoming';
+ return `<div class="grow">${bar('Booking '+b.id)}
+ <div class="app-body">
+  <div class="row-b"><span class="small b">${MODE_LABEL[b.mode]}</span>${statusPill(b)}</div>
+  ${b.tripPhase&&b.tripPhase!=='done'&&live?`<button class="btn btn-primary" data-act="open-trip" data-id="${b.id}">${ic('pin',20)} Open live trip</button>`:''}
+  ${b.mode==='now'&&live&&!b.tripPhase?`<button class="btn btn-primary" data-act="track-now" data-id="${b.id}">Track driver</button>`:''}
+  <section class="card stack">${driverCard(dr,b.days?'Primary driver':'Your driver')}
+   ${dr&&live?`<button class="btn btn-ghost btn-sm" data-act="masked-call" style="justify-self:start">${ic('phone',18)} Call driver</button><p class="xs muted">Calls go through a masked number.</p>`:''}
+   ${b.backupId?`<hr class="hr">${driverCard(driver(b.backupId),'Backup driver')}`:''}</section>
+  <section class="card stack-s small">
+   <div class="row-b"><span class="muted">${b.mode==='now'?'Arrives by':b.days?'Next day':'Start'}</span><b>${b.mode==='now'?fTime(b.start):fDT(b.start)}</b></div>
+   ${!b.days?`<div class="row-b"><span class="muted">Hours</span><b>${hrs(b.dur)}</b></div>`:''}
+   <div class="row-b"><span class="muted">Pickup</span><b style="text-align:right">${a?esc(a.label)+', '+esc(a.zone):esc(b.zone)}</b></div>
+   <div class="row-b"><span class="muted">Car</span><b>${esc(b.make)} ${esc(b.model)} · ${b.trans}</b></div>
+   ${b.passenger&&!b.passenger.self?`<div class="row-b"><span class="muted">Passenger</span><b>${esc(b.passenger.name)}</b></div>`:''}
+   <div class="row-b"><span class="muted">Paid</span><b class="num">${inr(b.price.total)}${b.extraPaid?` + ${inr(b.extraPaid)} added days`:''}${b.overtimeCharge?` + ${inr(b.overtimeCharge)} overtime`:''}${b.refund?` · ${inr(b.refund)} refunded`:''}</b></div>
+   ${live?`<div class="row-b"><span class="muted">Trip PIN</span><b class="num">${b.pin}</b></div>`:''}</section>
+  ${b.days?`<section class="stack"><div class="row-b"><h2 class="sec-title">Your days</h2>${live?`<button class="btn btn-ghost btn-sm" data-act="add-day">${ic('plus',18)} Add a day</button>`:''}</div>
+   <ul class="stack-s" style="list-style:none;margin:0;padding:0">${b.days.map((x,i)=>`<li class="card row-b small" style="padding:10px 12px;flex-wrap:wrap"><span><b>${fDate(combine(x.date,'00:00'))}</b> · ${fTime(combine(x.date,x.time))} · ${hrs(x.hours)}<br>${x.status==='skipped'?'<span class="pill dash">Skipped</span>':x.status==='done'?'<span class="pill soft">Done</span>':'<span class="pill">Scheduled</span>'}${x.added?' <span class="pill soft">Added</span>':''}</span>
+    ${live&&x.status==='scheduled'?`<span class="row"><button class="btn btn-ghost btn-sm" data-act="day-move" data-i="${i}">Move</button><button class="btn btn-ghost btn-sm" data-act="day-skip" data-i="${i}">Skip</button></span>`:''}</li>`).join('')}</ul></section>`:''}
+  ${cl?`<section class="card stack-s"><div class="row-b"><h2 style="font-size:1rem">Claim ${cl.id}</h2><span class="pill">${claimLabel(cl.status)}</span></div><button class="btn btn-ghost btn-sm" data-act="open-claim" data-id="${b.id}" style="justify-self:start">View claim</button></section>`:''}
+  ${b.status==='completed'&&!b.rating?`<button class="btn btn-primary" data-act="open-rate" data-id="${b.id}">Rate your driver</button>`:''}
+  ${b.status==='completed'&&dr&&dr.status==='verified'?`<button class="btn ${b.rating?'btn-primary':'btn-ghost'}" data-act="book-again" data-d="${dr.id}">${ic('repeat',18)} Book ${esc(dr.name.split(' ')[0])} again</button>`:''}
+  ${b.status==='completed'&&!cl&&b.returnPhotos.length&&now()-b.end<S.config.damageWindowH*H?`<button class="btn btn-ghost" data-act="start-claim" data-id="${b.id}">Report damage</button>`:''}
+  ${live&&(!b.tripPhase||b.tripPhase==='arriving')?`<div class="two">${b.mode==='later'?'<button class="btn btn-ghost" data-act="resched">Reschedule</button>':''}<button class="btn btn-ghost" data-act="cancel" ${b.mode!=='later'?'style="grid-column:1/-1"':''}>Cancel booking</button></div>`:''}
+  ${live&&!b.tripPhase&&b.mode!=='now'?`<div class="demo"><span class="eyebrow">${ic('flask',14)} Prototype controls</span><div class="wrapr"><button class="btn btn-ghost btn-sm" data-act="fast-forward" ${dr?'':'disabled'}>Jump to trip day</button>${dr?'<button class="btn btn-ghost btn-sm" data-act="drv-cancel">Simulate driver dropping out</button>':''}</div></div>`:''}
+  <section class="stack-s"><h2 class="sec-title">Activity</h2><ul class="timeline">${b.timeline.slice().reverse().map(x=>`<li><time>${fTime(x.t)}</time><span>${esc(x.text)}</span></li>`).join('')||'<li><time></time><span class="muted">No activity yet.</span></li>'}</ul></section>
+ </div></div>`;
+}
+
+const PHOTO_SET=['Front','Back','Left side','Right side','Odometer','Fuel gauge'];
+function photoGrid(list,interactive,kind){return `<div class="photos">${PHOTO_SET.map((p,i)=>{const t=list[i];
+ if(t)return `<div class="ph done" role="img" aria-label="${p} photo at ${fTime(t)}"><span><b>${p}</b><br><span class="num">${fTime(t)}</span></span></div>`;
+ return interactive?`<div class="ph"><button data-act="cap" data-kind="${kind}" data-i="${i}" aria-label="Capture ${p} photo">${ic('cam',20)}<span>${p}</span></button></div>`:`<div class="ph"><span>${p}<br>waiting</span></div>`;}).join('')}</div>`;}
+
+let mapTimer=null,mapT=0,lastFix=0;
+const mapSVG=()=>`<div class="map"><span class="live"><span class="dot"></span> Live · <span id="fix-age" class="num">updated just now</span></span>
+ <svg viewBox="0 0 360 220" role="img" aria-label="Map with your car's live position on the route"><g stroke="var(--surface)" stroke-width="10" fill="none" stroke-linecap="round"><path d="M0 60H360M0 150H360M70 0V220M190 0V220M300 0V220M0 200L120 100L260 30"/></g>
+ <path id="route" d="M40 185 L70 150 L190 150 L190 60 L300 60 L320 35" fill="none" stroke="var(--ink)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+ <circle cx="40" cy="185" r="7" fill="var(--surface)" stroke="var(--ink)" stroke-width="3"/><rect x="311" y="26" width="18" height="18" rx="3" fill="var(--ink)"/>
+ <g id="carDot"><circle r="14" fill="var(--ink)" opacity=".18"/><circle r="8" fill="var(--ink)" stroke="var(--surface)" stroke-width="2.5"/></g></svg></div>`;
+function startMap(b){stopMap();const path=$('#route'),dot=$('#carDot');if(!path||!dot)return;const L=path.getTotalLength();
+ const place=()=>{const p=path.getPointAtLength(L*(mapT%1));dot.setAttribute('transform',`translate(${p.x} ${p.y})`);};place();lastFix=now();
+ mapTimer=setInterval(()=>{const B=booking(b.id);if(!B||B.tripPhase!=='live'){stopMap();return;}mapT+=.012;place();B.elapsedMin=(B.elapsedMin||0)+1;
+  if(Math.random()<.8)lastFix=now();const age=Math.round((now()-lastFix)/1000),el=$('#fix-age');if(el)el.textContent=age<=1?'updated just now':`updated ${age}s ago`;
+  const ce=$('#elapsed');if(ce){const m=B.elapsedMin;ce.textContent=`${Math.floor(m/60)}:${pad(m%60)}`;}
+  const ot=$('#ot');if(ot){const over=B.elapsedMin-B.dur*60;ot.hidden=!(over>0);if(over>0){const k=Math.ceil(over/S.config.overtimeBlock);ot.querySelector('span').textContent=`Overtime: ${k} × ${S.config.overtimeBlock} min = ${inr(k*S.rates.overtime)} so far`;}}},1000);}
+function stopMap(){if(mapTimer){clearInterval(mapTimer);mapTimer=null;}}
+
+function scrTrip(){
+ const b=booking(S.current),dr=driver(b.driverId),ph=b.tripPhase;
+ const idx={arriving:0,handover:1,live:2,return:3}[ph];
+ const head=`<ol class="hsteps" aria-label="Trip progress">${['On the way','Handover','On trip','Returned'].map((s,i)=>`<li class="${i<idx?'done':i===idx?'now':''}" ${i===idx?'aria-current="step"':''}><span class="s">${i<idx?ic('check',14):i+1}</span>${s}</li>`).join('')}</ol>`;
+ let body='';
+ if(ph==='arriving'){body=`<section class="card stack">${driverCard(dr,b.mode==='now'?'Arriving by '+fTime(b.start):'Arriving in about 12 min')}<button class="btn btn-ghost btn-sm" data-act="masked-call" style="justify-self:start">${ic('phone',18)} Call driver</button></section>
+  <section class="card stack"><h2 style="font-size:1rem">Your trip PIN</h2><div class="pin" aria-label="PIN ${b.pin.split('').join(' ')}">${b.pin.split('').map(x=>`<span aria-hidden="true">${x}</span>`).join('')}</div><p class="small muted">Give this to ${esc(dr.name.split(' ')[0])} after you've checked the handover photos.</p></section>`;}
+ else if(ph==='handover'){const all=b.startPhotos.filter(Boolean).length===6;
+  body=`<section class="card stack"><div class="row-b"><h2 style="font-size:1rem">Handover photos</h2><span class="pill ${all?'solid':'dash'} num">${b.startPhotos.filter(Boolean).length}/6</span></div>${photoGrid(b.startPhotos,false)}
+   <p class="small muted">Taken by ${esc(dr.name.split(' ')[0])} with time stamps. Saved for any damage claim.</p>
+   ${b.handoverOk?`<div class="notice">${ic('check',20)}<p class="small"><b>Handover confirmed.</b> Share PIN <b class="num">${b.pin}</b> with the driver to start.</p></div>`:`<label class="chk"><input type="checkbox" id="ho-check" ${all?'':'disabled'}><span>The photos match my car's condition</span></label><button class="btn btn-primary" data-act="confirm-handover" ${all?'':'disabled'}>Confirm handover</button>`}</section>`;}
+ else if(ph==='live'){body=`${mapSVG()}<section class="card stack-s"><div class="row-b"><span class="small muted">Booked ${hrs(b.dur)}</span><span class="small">Elapsed <b id="elapsed" class="num">0:00</b></span></div><p class="notice small" id="ot" hidden>${ic('clock',18)}<span></span></p><p class="xs muted">Prototype clock: one second is one minute of trip time.</p></section>
+  <button class="btn btn-sos" data-act="sos">${ic('alert',22)} SOS</button>
+  <section class="card stack"><div class="row-b"><h2 style="font-size:1rem">Family tracking</h2><span class="small muted num">${S.family.length}/${S.config.familyMax}</span></div>
+   <ul class="stack-s small" style="list-style:none;margin:0;padding:0">${S.family.map((f,i)=>`<li class="row-b"><span><b>${esc(f.name)}</b> · ${esc(f.phone)}</span><button class="btn-link" data-act="fam-del" data-i="${i}" aria-label="Stop sharing with ${esc(f.name)}">Remove</button></li>`).join('')||'<li class="muted">Not shared yet.</li>'}</ul>
+   ${S.family.length<S.config.familyMax?`<div class="two"><label class="f" for="fam-name">Name<input type="text" id="fam-name" autocomplete="off"></label><label class="f" for="fam-phone">Mobile<input type="tel" id="fam-phone" inputmode="numeric" autocomplete="off"></label></div><p class="err" id="fam-err" hidden></p><button class="btn btn-ghost btn-sm" data-act="fam-add" style="justify-self:start">${ic('share',18)} Share live location</button>`:'<p class="small muted">Up to 3 people.</p>'}
+   <p class="xs muted">The link opens in any browser and stops working when the trip ends.</p></section>`;}
+ else if(ph==='return'){body=`<section class="card stack"><h2 style="font-size:1rem">Return photos</h2>${photoGrid(b.returnPhotos,false)}<p class="small muted">Compare with the start photos. You have ${S.config.damageWindowH} hours to flag damage.</p>
+  <details><summary class="btn-link">See start photos</summary><div style="margin-top:8px">${photoGrid(b.startPhotos,false)}</div></details>
+  ${b.overtimeCharge?`<p class="notice small">${ic('clock',18)}<span>Overtime ${inr(b.overtimeCharge)} charged to your UC payment method.</span></p>`:''}
+  <button class="btn btn-primary" data-act="return-ok">Car's fine, confirm return</button><button class="btn btn-ghost" data-act="return-flag">Flag damage</button></section>`;}
+ const next={arriving:'Driver arrives and takes start photos',handover:b.handoverOk?'Driver enters your PIN to start':'Waiting for you to confirm the handover',live:'Driver ends the trip and takes return photos'}[ph];
+ const can=ph==='arriving'||(ph==='handover'&&b.handoverOk)||ph==='live';
+ return `<div class="grow">${bar(ph==='live'?'On the trip':'Trip day')}<div class="app-body">${head}${body}
+  ${ph!=='return'?`<div class="demo"><span class="eyebrow">${ic('flask',14)} Driver side</span><p class="small">Next: ${next}.</p><div class="wrapr"><button class="btn btn-ghost btn-sm" data-act="sim-driver" ${can?'':'disabled'}>Simulate driver step</button><button class="btn btn-ghost btn-sm" data-act="view" data-v="partner">Open Partner app</button></div></div>`:''}</div></div>`;
+}
+function scrRate(){const b=booking(S.current),dr=driver(b.driverId),r=S.rateDraft||{stars:0,comment:''};
+ return `<div class="grow">${bar('Rate your trip','nav-bookings')}<div class="app-body"><section class="card stack">${driverCard(dr)}
+  <fieldset><legend>How was ${esc(dr.name.split(' ')[0])}?</legend><div class="stars" role="radiogroup" aria-label="Rating out of 5">${[1,2,3,4,5].map(i=>`<label class="${i<=r.stars?'on':''}"><input type="radio" name="stars" value="${i}" data-change="stars" ${r.stars===i?'checked':''}>${starFill(34)}<span class="sr">${i} star${i>1?'s':''}</span></label>`).join('')}</div></fieldset>
+  <label class="f" for="rate-c">Anything to add? <span class="hint">Optional</span><textarea id="rate-c" data-bind-rate>${esc(r.comment)}</textarea></label><p class="err" id="rate-err" hidden></p>
+  <button class="btn btn-primary" data-act="submit-rate">Submit rating</button></section></div></div>`;}
+const claimOf=b=>S.claims.find(c=>c.bookingId===b.id);
+const claimLabel=s=>({open:'Open',review:'Under review',approved:'Approved',rejected:'Rejected',paid:'Paid'})[s];
+function scrClaim(){const b=booking(S.current),cl=claimOf(b),rp=b.returnPhotos.length?b.returnPhotos:(b.lastDay?b.lastDay.returnPhotos:[]);
+ if(!cl){const f=S.claimDraft||{part:'',desc:''};return `<div class="grow">${bar('Report damage')}<form class="app-body" novalidate>
+  <div class="notice">${ic('info',20)}<p class="small">Your 12 time-stamped handover photos attach automatically and go to UC's insurance partner with the trip and driver IDs.</p></div>
+  <label class="f" for="cl-part">Where is the damage?<select id="cl-part" data-bind-claim="part"><option value="">Choose</option>${PHOTO_SET.slice(0,4).concat(['Interior']).map(p=>`<option ${f.part===p?'selected':''}>${p}</option>`).join('')}</select></label>
+  <label class="f" for="cl-desc">What happened?<textarea id="cl-desc" data-bind-claim="desc" placeholder="e.g. New scratch on the rear bumper">${esc(f.desc)}</textarea></label><p class="err" id="claim-err" hidden></p>
+  <section class="stack-s"><span class="small b">Attached: return photos</span>${photoGrid(rp,false)}</section><button class="btn btn-primary" data-act="submit-claim">Submit claim</button></form></div>`;}
+ const idx=cl.status==='open'?0:cl.status==='review'?1:(cl.status==='approved'||cl.status==='rejected')?2:3;
+ return `<div class="grow">${bar('Claim '+cl.id)}<div class="app-body"><section class="card stack"><div class="row-b"><h2 style="font-size:1rem">${esc(cl.part)} damage</h2><span class="pill">${claimLabel(cl.status)}</span></div><p class="small">${esc(cl.desc)}</p>
+  <ol class="steps">${['Claim raised','Under review by insurer',cl.status==='rejected'?'Rejected':'Approved','Paid'].map((l,i)=>`<li class="${i<idx||(i===idx&&cl.status==='paid')?'done':i===idx?'now':''}"><span class="s">${i<idx?ic('check',14):i+1}</span><span class="small" style="padding-top:4px">${l}</span></li>`).join('')}</ol>
+  <p class="small muted">Sent with trip ${b.id}, driver ID ${b.driverId.toUpperCase()}, 12 photos and time stamps.</p></section>
+  <div class="demo"><span class="eyebrow">${ic('flask',14)} Prototype</span><p class="small">The claims team moves the status in the Ops console.</p><button class="btn btn-ghost btn-sm" data-act="view" data-v="ops" style="justify-self:start">Open Ops console</button></div></div></div>`;}
+
+function walletSub(k){const W=S.wallet,m=S.modal;
+ const amts=(act)=>`<div class="chips" role="group" aria-label="Amount">${[500,1000,2000,5000].map(a=>`<button type="button" class="chip" data-act="w-amt" data-v="${a}" aria-pressed="${m.amt===a}">${inr(a)}</button>`).join('')}</div>`;
+ if(k==='add') return `<p class="small muted">Money added goes into UC Cash.</p>${amts()}<button class="btn btn-primary btn-sm" data-act="w-add" ${m.amt?'':'disabled'}>${m.amt?`Add ${inr(m.amt)} via UPI`:'Choose an amount'}</button>`;
+ if(k==='gift') return `<p class="small muted">Send a UC gift card by SMS. It can be used on any UC service, including UC Drive.</p>${amts()}
+  <div class="two"><label class="f" for="gc-name">Their name<input type="text" id="gc-name" autocomplete="off" value="${esc(m.gName||'')}"></label><label class="f" for="gc-phone">Their mobile<input type="tel" id="gc-phone" inputmode="numeric" autocomplete="off" value="${esc(m.gPhone||'')}"></label></div>
+  <p class="err" id="gc-err" ${m.gErr?'':'hidden'}>${esc(m.gErr||'')}</p><button class="btn btn-primary btn-sm" data-act="w-gift">${m.amt?`Buy ${inr(m.amt)} gift card`:'Buy gift card'}</button>`;
+ if(k==='cash') return `<p class="small">UC Cash is money you add and refunds from cancelled bookings. It never expires and can pay for the full booking amount. Choose UC Wallet at payment to use it.</p>`;
+ if(k==='credits') return `<p class="small">UC Credits come from offers and referrals. They can cover up to 10% of a booking and expire on ${esc(W.creditsExpire)}.</p>`;
+ return W.activity.length?`<ul class="timeline">${W.activity.map(a=>`<li><time>${new Date(a.t).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</time><span class="row-b"><span>${esc(a.text)}</span><b class="num">${a.amt>0?'+':'−'}${inr(Math.abs(a.amt))}</b></span></li>`).join('')}</ul>`:'<p class="small muted">No activity yet.</p>';
+}
+function modalHTML(){const m=S.modal;if(!m)return '';let x='';
+ if(m.type==='pay'){const q=quote(S.draft);x=`<h2 id="m-h">Pay ${inr(q.total)}</h2><fieldset><legend class="small muted">Payment method</legend><div class="stack-s">${[['UPI','priya@okicici'],['Card','Visa ending 4417'],['UC Wallet','UC Cash '+inr(S.wallet.cash)]].map(p=>`<label class="radio-card"><input type="radio" name="pm" value="${p[0]}" data-change="pm" ${(S.payMethod||'UPI')===p[0]?'checked':''}><span><b>${p[0]}</b><br><span class="small muted">${p[1]}</span></span></label>`).join('')}</div></fieldset>
+  ${m.busy?`<p class="notice" role="status">${ic('clock',18)}<span>Processing payment…</span></p>`:''}<button class="btn btn-primary" data-act="do-pay" ${m.busy?'disabled':''}>Pay now</button><button class="btn btn-ghost" data-act="close-modal" ${m.busy?'disabled':''}>Cancel</button>`;}
+ else if(m.type==='cancel'){const b=booking(S.current),r=refundFor(b,b.price.total+(b.extraPaid||0));x=`<h2 id="m-h">Cancel this booking?</h2><p class="small">${esc(r.why)}</p><div class="price num"><div class="l"><span>Paid</span><span>${inr(b.price.total+(b.extraPaid||0))}</span></div><div class="l t"><span>Refund</span><span>${inr(r.amt)}</span></div></div><button class="btn btn-primary" data-act="do-cancel">Cancel booking</button><button class="btn btn-ghost" data-act="close-modal">Keep booking</button>`;}
+ else if(m.type==='skip'){const b=booking(S.current),d=b.days[m.i],ts=combine(d.date,d.time),r=refundFor({start:ts,mode:'later'},d.price||dayPrice(d));x=`<h2 id="m-h">Skip ${fDate(ts)}?</h2><p class="small">${esc(r.why)}</p><div class="price num"><div class="l t"><span>Refund</span><span>${inr(r.amt)}</span></div></div><button class="btn btn-primary" data-act="do-skip">Skip this day</button><button class="btn btn-ghost" data-act="close-modal">Keep it</button>`;}
+ else if(m.type==='resched'||m.type==='move'||m.type==='addday'){const b=booking(S.current);const base=m.type==='move'?combine(b.days[m.i].date,b.days[m.i].time):m.type==='addday'?null:b.start;const h=m.h||(m.type==='move'?b.days[m.i].hours:m.type==='addday'?(b.days.slice(-1)[0].hours):b.dur);
+  const price=m.type==='addday'&&m.date&&m.time?dayPrice({date:m.date,time:m.time,hours:h}):null;
+  x=`<h2 id="m-h">${m.type==='addday'?'Add a day':m.type==='move'?'Move '+fDate(base):'Reschedule'}</h2>
+  <div class="two"><label class="f" for="rs-date">Date<input type="date" id="rs-date" min="${isoDate(now())}" max="${isoDate(now()+S.config.horizonD*DAY)}" value="${m.date!=null?m.date:(base?isoDate(base):'')}" data-mbind="date"></label><label class="f" for="rs-time">Start time<select id="rs-time" data-mbind="time">${timeOpts(m.time!=null?m.time:(base?hhmm(base):''))}</select></label></div>
+  ${m.type!=='resched'?dragHTML('rs-hrs',h,'Hours','data-drag="modal"'):''}
+  <p class="err" id="rs-err" ${m.err?'':'hidden'}>${m.err?esc(m.err):''}</p>
+  ${m.type==='addday'?`<p class="small" id="add-price">${price!=null?`This day costs <b class="num">${inr(price)}</b> (multi-day rate). We'll ask ${esc(driver(b.driverId).name.split(' ')[0])} first.`:'Pick a date and time to see the price.'}</p>`:`<p class="small muted">Your price stays the same. No surge.</p>`}
+  <button class="btn btn-primary" data-act="do-resched">${m.type==='addday'?'Pay and add day':'Save new time'}</button><button class="btn btn-ghost" data-act="close-modal">Cancel</button>`;}
+ else if(m.type==='sos'){if(m.sent)x=`<h2 id="m-h">Safety desk alerted</h2><div class="notice strong">${ic('alert',20)}<div class="small"><p><b>Sent at ${fTime(m.sent)}.</b> The UC safety desk has your trip ID, live location and both contact numbers.</p><p style="margin-top:6px">${S.family.length?`Family notified: ${S.family.map(f=>esc(f.name.split(' ')[0])).join(', ')}.`:'No family contacts on this trip.'}</p></div></div><p class="small">If you're in danger, call 112.</p><p class="small b">Safety desk: <span class="num">1800 123 4560</span></p><button class="btn btn-primary" data-act="close-modal">Close</button>`;
+  else if(m.offline)x=`<h2 id="m-h">No data connection</h2><p class="small">The app can't send the alert. Call the UC safety desk; they'll see your trip from your number.</p><p class="b num" style="font-size:1.4rem">1800 123 4560</p><a class="btn btn-sos" href="tel:18001234560">${ic('phone',20)} Call safety desk</a><button class="btn btn-ghost" data-act="close-modal">Close</button>`;
+  else x=`<h2 id="m-h">Send SOS?</h2><p class="small">The UC safety desk gets your trip ID, live location and contact details right away. Family contacts are notified.</p><label class="chk small"><input type="checkbox" id="sim-offline" ${S.offline?'checked':''} data-change="offline"><span>Prototype: simulate no data connection</span></label><button class="btn btn-sos" data-act="do-sos">Send SOS now</button><button class="btn btn-ghost" data-act="close-modal">Cancel</button>`;}
+ else if(m.type==='call')x=`<h2 id="m-h">Call through a masked number</h2><p class="small">UC connects you without sharing either number.</p><p class="b num" style="font-size:1.3rem">+91 80 4718 2290</p><p class="xs muted">Prototype: no call is placed.</p><button class="btn btn-primary" data-act="close-modal">Done</button>`;
+ else if(m.type==='wallet'){const W=S.wallet,sub=m.sub;
+  const row=(k,icn,label,right)=>`<li><button data-act="wsub" data-v="${k}" aria-expanded="${sub===k}">${ic(icn,22)}<span>${label}</span><span class="go">${right||''}${ic(sub===k?'x':'fwd',16)}</span></button>${sub===k?`<div class="sub">${walletSub(k)}</div>`:''}</li>`;
+  x=`<div class="row-b"><h2 id="m-h">UC Wallet</h2><button class="icon-btn" data-act="close-modal" aria-label="Close">${ic('x')}</button></div>
+  <div class="two"><div class="card bal"><span class="eyebrow">UC Cash</span><b>${inr(W.cash)}</b><span class="xs muted">Never expires</span></div><div class="card bal"><span class="eyebrow">UC Credits</span><b>${inr(W.credits)}</b><span class="xs muted">Expire ${esc(W.creditsExpire)}</span></div></div>
+  <ul class="menu">${row('gift','gift','Buy a gift card')}${row('add','plus','Add money')}${row('cash','coin','UC Cash',inr(W.cash))}${row('credits','star','UC Credits',inr(W.credits))}${row('activity','list','Wallet activity')}</ul>`;}
+ else if(m.type==='profile'){const P=S.profile,sub=m.sub;
+  x=`<div class="row-b"><h2 id="m-h" class="sr">Account</h2><span></span><button class="icon-btn" data-act="close-modal" aria-label="Close">${ic('x')}</button></div>
+  <div class="driver"><span class="avatar" aria-hidden="true">${initials(P.name)}</span><div class="stack-s" style="gap:2px"><b style="font-size:1.15rem">${esc(P.name)}</b><span class="small muted num">${esc(P.phone)}</span><span class="small muted">${esc(P.email)}</span></div></div>
+  <ul class="menu">
+   <li><button data-act="prof-bookings">${ic('list',22)}<span>My bookings</span><span class="go">${S.bookings.filter(b=>b.mine&&b.status==='upcoming').length} upcoming ${ic('fwd',16)}</span></button></li>
+   <li><button data-act="psub" data-v="help" aria-expanded="${sub==='help'}">${ic('help',22)}<span>Help &amp; support</span><span class="go">${ic(sub==='help'?'x':'fwd',16)}</span></button>
+    ${sub==='help'?`<div class="sub"><button class="btn btn-ghost btn-sm" data-act="help-chat">${ic('chat',18)} Chat with UC support</button><p class="small">Call support: <b class="num">1800 123 4560</b> <span class="muted">(8 AM – 10 PM)</span></p>
+     <p class="small b">Common UC Drive questions</p><ul class="small stack-s" style="margin:0;padding-left:18px"><li>How is my driver verified?</li><li>What if my car is damaged during a trip?</li><li>How do refunds work if I cancel?</li></ul></div>`:''}</li></ul>`;}
+ return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="m-h" id="sheet">${x}</div></div>`;}
+
+function customerScreen(){return ({home:scrHome,drive:scrDrive,book:scrBook,review:scrReview,confirmed:scrConfirmed,bookings:scrBookings,detail:scrDetail,trip:scrTrip,rate:scrRate,claim:scrClaim}[S.screen]||scrHome)();}
+
+/* ============ partner app ============ */
+function partnerView(){
+ const me=driver('d1'),tab=S.partnerTab;let body='';
+ const carLine=b=>`${esc(b.make)} ${esc(b.model)} · ${esc(b.type)} · ${esc(b.trans)}`;
+ if(tab==='trips'){
+  const mine=S.bookings.filter(b=>b.driverId==='d1'&&b.status==='upcoming').sort((a,b)=>a.start-b.start);
+  const instant=mine.filter(b=>b.mode==='now'&&!b.accepted);
+  const active=mine.find(b=>b.tripPhase&&b.tripPhase!=='done');
+  const rest=mine.filter(b=>b!==active&&!instant.includes(b));
+  const done=S.bookings.filter(b=>b.driverId==='d1'&&b.mine&&b.status==='completed'&&!b.custRated&&b.timeline.length);
+  body=`${instant.map(b=>`<section class="card inv stack"><div class="row-b"><span class="eyebrow" style="color:inherit;opacity:.75">New In 1 hr request</span><span class="pill">${esc(b.zone)}</span></div>
+    <b style="font-size:1.1rem">Reach by ${fTime(b.start)} · ${hrs(b.dur)}</b><span class="small">${carLine(b)}</span>${b.requested==='d1'?`<span class="small b">${ic('repeat',14)} Repeat customer asked for you</span>`:''}
+    <p class="small" style="opacity:.85">Respond within 60 seconds or it goes to the next matched driver.</p>
+    <div class="two"><button class="btn btn-ghost" data-act="p-accept" data-id="${b.id}">Accept</button><button class="btn btn-ghost" data-act="p-decline" data-id="${b.id}">Decline</button></div></section>`).join('')}
+   ${active?partnerTrip(active):''}
+   <section class="stack"><h2 class="sec-title">Upcoming</h2>${rest.map(b=>`<div class="card stack-s"><div class="row-b"><b>${b.mode==='now'?'Reach by '+fTime(b.start):fDT(b.start)}</b><span class="pill">${MODE_LABEL[b.mode]}</span></div>
+    <span class="small">${carLine(b)}</span><span class="small muted">${esc(b.zone)} · ${b.days?`${b.days.filter(x=>x.status==='scheduled').length} days left`:hrs(b.dur)}</span>
+    ${b.requested==='d1'?`<span class="pill solid" style="justify-self:start">${ic('repeat',14)} Customer asked for you</span>`:''}
+    ${b.days?`<ul class="small stack-s" style="margin:0;padding-left:18px">${b.days.filter(x=>x.status==='scheduled').slice(0,5).map(x=>`<li>${fDate(combine(x.date,'00:00'))}, ${fTime(combine(x.date,x.time))} · ${hrs(x.hours)}</li>`).join('')}</ul>`:''}
+    ${!b.tripPhase&&b.mine?`<button class="btn btn-ghost btn-sm" data-act="p-start-day" data-id="${b.id}" style="justify-self:start">${b.mode==='now'?'Head to pickup':'Start trip day (demo)'}</button>`:''}</div>`).join('')||(!active&&!instant.length?'<p class="muted small">No trips yet. Book In 1 hr or Later in the Customer app for Koramangala, HSR Layout or Jayanagar; Ramesh is the top match there.</p>':'<p class="muted small">Nothing else scheduled.</p>')}</section>
+   ${done.length?`<section class="stack"><h2 class="sec-title">Rate your customer</h2>${done.map(b=>`<div class="card stack-s"><b>${b.id} · ${fDate(b.start)}</b><label class="f" for="cr-${b.id}">Rating<select id="cr-${b.id}"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
+    <label class="f" for="ci-${b.id}">Report an issue <span class="hint">Optional</span><input type="text" id="ci-${b.id}" placeholder="e.g. Car had low fuel at handover"></label><button class="btn btn-primary btn-sm" data-act="p-rate-cust" data-id="${b.id}" style="justify-self:start">Submit</button></div>`).join('')}</section>`:''}`;
+ } else if(tab==='availability'){
+  const bands=['Morning 6–12','Afternoon 12–6','Evening 6–10','Night 10–2'];
+  body=`<section class="card stack"><label class="switch"><input type="checkbox" data-change="online" ${me.online?'checked':''}><span class="tr"></span><span><b>Take In 1 hr trips now</b><br><span class="small muted">${me.online?'You get instant requests near your zones.':'You only get pre-booked trips.'}</span></span></label></section>
+   <section class="stack"><h2 class="sec-title">Pre-booked availability</h2><div class="tbl-wrap"><table><thead><tr><th scope="col">Day</th>${bands.map(b=>`<th scope="col">${b.split(' ')[0]}</th>`).join('')}</tr></thead><tbody>
+   ${[1,2,3,4,5,6,0].map(d=>`<tr><th scope="row">${WD[d]}</th>${bands.map((b,i)=>{const k=d+'-'+i,on=S.availability[k]!==undefined?S.availability[k]:i<3;return `<td><label class="chk"><input type="checkbox" data-change="avail" data-k="${k}" ${on?'checked':''}><span class="sr">${WD[d]} ${b}</span></label></td>`;}).join('')}</tr>`).join('')}</tbody></table></div></section>
+   <section class="stack"><h2 class="sec-title">Guaranteed-hours slots</h2><p class="small muted">Opt in and you're paid for at least 4 hours.</p>
+   ${[['fri','Fri, 8 PM – 2 AM','Koramangala'],['sat','Sat, 8 PM – 2 AM','Koramangala, HSR Layout'],['sun','Sun, 7 AM – 1 PM','Jayanagar']].map(g=>`<label class="radio-card"><input type="checkbox" data-change="guar" data-k="${g[0]}" ${S.guaranteed[g[0]]?'checked':''}><span><b>${g[1]}</b><br><span class="small muted">${g[2]} · 4 paid hours minimum</span></span></label>`).join('')}</section>`;
+ } else if(tab==='profile'){
+  body=`<section class="card stack"><h2 style="font-size:1.05rem">Your car experience</h2><p class="small muted">You're only matched to cars you're cleared for. Ask UC operations to add a car type after a supervised test.</p>
+   <div><span class="small b">Car types</span><div class="wrapr" style="margin-top:6px">${TYPES.map(t=>`<span class="pill ${me.types.includes(t)?'solid':'dash'}">${me.types.includes(t)?ic('check',12):''} ${t}</span>`).join('')}</div></div>
+   <div><span class="small b">Transmission</span><div class="wrapr" style="margin-top:6px">${['Manual','Automatic'].map(t=>`<span class="pill ${me.skills.includes(t)?'solid':'dash'}">${t}</span>`).join('')}</div></div>
+   <p class="small">${me.years} years driving · ${me.rating} ★ · ${me.trips} trips</p>
+   <p class="small">Repeat customers who asked for you by name: <b>${S.bookings.filter(b=>b.requested==='d1').length}</b></p></section>`;
+ } else {
+  const a=S.applicant,st=applicantStatus();
+  const docRow=(k,l)=>`<div class="row-b"><span>${l}</span>${a.docs[k]?`<span class="pill solid">${ic('check',14)} Uploaded</span>`:`<label class="btn btn-ghost btn-sm" style="position:relative">Upload<input type="file" accept="image/*,application/pdf" data-change="doc" data-k="${k}" style="position:absolute;inset:0;opacity:0;cursor:pointer" aria-label="Upload ${l}"></label>`}</div>`;
+  body=`<section class="card stack"><div class="row-b"><div><span class="eyebrow">Applicant</span><h2 style="font-size:1.1rem">${esc(a.name)}</h2></div><span class="pill ${st==='verified'?'solid':'dash'}">${st==='verified'?'Verified and Trained':'Onboarding'}</span></div><p class="small muted">Trips are assigned only when every step is complete and passed.</p></section>
+   <section class="card stack"><h3 style="font-size:1rem">1. Documents</h3>${docRow('id','Identity document')}${docRow('licence','Driving licence')}${docRow('photo','Profile photo')}<button class="btn-link" data-act="docs-sample" style="justify-self:start">Use sample files</button></section>
+   <section class="card stack"><h3 style="font-size:1rem">2. Background verification</h3>${a.bgv==='not_started'?`<button class="btn btn-ghost btn-sm" data-act="bgv" ${Object.values(a.docs).every(Boolean)?'':'disabled'} style="justify-self:start">Send to verification vendor</button>${Object.values(a.docs).every(Boolean)?'':'<p class="xs muted">Upload documents first.</p>'}`:a.bgv==='pending'?'<span class="pill dash">Checks running</span>':'<span class="pill solid">Clear</span>'}</section>
+   <section class="card stack"><h3 style="font-size:1rem">3. Car experience</h3><p class="small muted">Decides which customers' cars you're matched to.</p>
+    <label class="f" for="yrs">Years of driving<select id="yrs" data-change="years">${['2','4','6','8','10','15+'].map(y=>`<option ${a.years===y?'selected':''}>${y}</option>`).join('')}</select></label>
+    <span class="small b">Transmission</span><div class="wrapr">${['Manual','Automatic'].map(k=>`<label class="chk"><input type="checkbox" data-change="skill" data-k="${k}" ${a.skills[k]?'checked':''}><span>${k}</span></label>`).join('')}</div>
+    <span class="small b">Car types driven regularly</span><div class="wrapr">${TYPES.map(k=>`<label class="chk"><input type="checkbox" data-change="ctype" data-k="${k}" ${a.types[k]?'checked':''}><span>${k}</span></label>`).join('')}</div></section>
+   <section class="card stack"><h3 style="font-size:1rem">4. Driving test</h3><p class="small muted">Taken in each car type ticked above.</p><label class="f" for="dtest">Examiner result<select id="dtest" data-change="dtest"><option value="pending" ${a.test==='pending'?'selected':''}>Not taken</option><option value="pass" ${a.test==='pass'?'selected':''}>Passed</option><option value="fail" ${a.test==='fail'?'selected':''}>Failed</option></select></label></section>
+   <section class="card stack-s"><h3 style="font-size:1rem">5. Training</h3>${[['care','Customer care and helping senior passengers'],['handover','Car handover and photo protocol'],['safety','Safety, SOS and incident steps']].map(t=>`<label class="chk"><input type="checkbox" data-change="train" data-k="${t[0]}" ${a.training[t[0]]?'checked':''}><span class="small">${t[1]}</span></label>`).join('')}</section>
+   ${st==='verified'&&!a.activated?`<button class="btn btn-primary" data-act="activate">Activate driver</button>`:''}${a.activated?`<div class="notice strong">${ic('check',20)}<p class="small"><b>${esc(a.name)} is live</b> for ${Object.keys(a.types).filter(k=>a.types[k]).join(', ')} · ${Object.keys(a.skills).filter(k=>a.skills[k]).join(' & ')}.</p></div>`:''}`;
+ }
+ return `<div class="grow"><div class="app-head"><div class="row"><span class="uc-mark" style="background:var(--inv);color:var(--ink)" aria-hidden="true">UC</span><div><b>UC Partner · Drive</b><br><span class="small" style="opacity:.8">${esc(me.name)} · ${me.online?'Online for In 1 hr':'Pre-booked only'}</span></div></div><h1 class="sr scr-h" tabindex="-1">UC Partner app</h1></div>
+ <div class="app-body"><div class="seg" role="tablist" aria-label="Partner sections">${[['trips','Trips'],['availability','Availability'],['profile','My cars'],['onboarding','Join']].map(t=>`<button role="tab" data-act="ptab" data-v="${t[0]}" aria-selected="${tab===t[0]}">${t[1]}</button>`).join('')}</div>${body}</div></div>`;
+}
+function applicantStatus(){const a=S.applicant;return Object.values(a.docs).every(Boolean)&&a.bgv==='clear'&&a.test==='pass'&&Object.values(a.training).every(Boolean)&&(a.skills.Manual||a.skills.Automatic)&&Object.values(a.types).some(Boolean)?'verified':'onboarding';}
+function partnerTrip(b){const ph=b.tripPhase,a=addr(b.addrId);let x='';
+ if(ph==='arriving'||ph==='handover'){const n=b.startPhotos.filter(Boolean).length;x=`<p class="small">Pickup: <b>${a?esc(a.line+', '+a.zone):esc(b.zone)}</b><br>${esc(b.make)} ${esc(b.model)} · ${b.trans}</p>
+  <div class="row-b"><b class="small">Start photos</b><span class="pill ${n===6?'solid':'dash'} num">${n}/6</span></div>${photoGrid(b.startPhotos,true,'start')}
+  ${n===6?`${b.handoverOk?'<p class="pill solid" style="justify-self:start">Customer confirmed handover</p>':'<p class="small muted">Waiting for the customer to confirm the photos.</p>'}<label class="f" for="p-pin">Customer's trip PIN<input type="text" id="p-pin" inputmode="numeric" maxlength="4" autocomplete="off"></label><p class="err" id="p-pin-err" hidden></p><button class="btn btn-primary" data-act="p-start" ${b.handoverOk?'':'disabled'}>Start trip</button>`:'<p class="small muted">All six photos are needed before the trip can start.</p>'}`;}
+ else if(ph==='live'){const n=b.returnPhotos.filter(Boolean).length;x=`<p class="small"><span class="dot"></span> Trip running. Location shared with the customer.</p><button class="btn btn-sos" data-act="p-sos">${ic('alert',22)} SOS</button>
+  <div class="row-b"><b class="small">Return photos</b><span class="pill ${n===6?'solid':'dash'} num">${n}/6</span></div>${photoGrid(b.returnPhotos,true,'return')}<button class="btn btn-primary" data-act="p-end" ${n===6?'':'disabled'}>End trip and hand back car</button>`;}
+ else if(ph==='return')x='<p class="small">Waiting for the customer to confirm the return.</p>';
+ return `<section class="card stack" style="border:2px solid var(--ink)"><div class="row-b"><h2 style="font-size:1.05rem">Current trip · ${b.id}</h2><span class="pill solid">${{arriving:'Arriving',handover:'Handover',live:'Live',return:'Returned'}[ph]}</span></div>${x}</section>`;}
+
+/* ============ ops console ============ */
+function opsView(){
+ const tab=S.opsTab,t=now(),up=S.bookings.filter(b=>b.status==='upcoming');
+ const urgent=up.filter(b=>!b.driverId&&b.start-t<60*MIN);
+ const pendingInstant=up.filter(b=>b.mode==='now'&&b.driverId&&!b.accepted).length;
+ const openSOS=S.sos.filter(s=>s.status!=='closed').length;
+ const reqs=S.bookings.filter(b=>b.requested&&b.status!=='cancelled'),reqMet=reqs.filter(b=>b.driverId===b.requested).length;
+ const openClaims=S.claims.filter(c=>c.status!=='paid'&&c.status!=='rejected').length;
+ const tabs=[['bookings','Bookings'],['safety',`Safety desk${openSOS?` (${openSOS})`:''}`],['drivers','Drivers'],['claims',`Claims${openClaims?` (${openClaims})`:''}`],['config','Service and rates']];
+ let body='';
+ if(tab==='bookings'){
+  const list=up.filter(b=>(S.opsZone==='All'||b.zone===S.opsZone)&&(S.opsMode==='All'||MODE_LABEL[b.mode]===S.opsMode)).sort((a,b)=>a.start-b.start);
+  body=`${urgent.length?`<div class="notice strong" role="alert">${ic('alert',20)}<p><b>${urgent.length} booking${urgent.length>1?'s':''} start within 60 minutes with no driver.</b> Assign a matching driver or call the customer.</p></div>`:''}
+  <div class="row" style="flex-wrap:wrap;align-items:end;margin:12px 0"><label class="f" for="ops-zone" style="width:200px">Zone<select id="ops-zone" data-change="opszone">${['All',...CITY_DATA.Bengaluru.zones].map(z=>`<option ${S.opsZone===z?'selected':''}>${z}</option>`).join('')}</select></label>
+   <label class="f" for="ops-mode" style="width:180px">Type<select id="ops-mode" data-change="opsmode">${['All','In 1 hr','Later','Multi-day'].map(z=>`<option ${S.opsMode===z?'selected':''}>${z}</option>`).join('')}</select></label></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Booking</th><th>Start</th><th>Car · needs</th><th>Requested</th><th>Driver</th><th>Action</th></tr></thead><tbody>
+  ${list.map(b=>{const dr=driver(b.driverId),req=b.requested?driver(b.requested):null;const el=eligible(b.city,b.zone,b.trans,b.type,b.mode==='now'?t:b.start,b.end,{instant:b.mode==='now',ignore:b.id}).filter(x=>x.id!==b.driverId);const u=!b.driverId&&b.start-t<60*MIN;
+   return `<tr class="${u?'alert':''}"><td><b class="num">${b.id}</b><br><span class="xs muted">${MODE_LABEL[b.mode]} · ${esc(b.zone)}${b.mine?' · your test':''}</span><br><span class="xs">${esc(b.customer)}</span></td>
+   <td class="num">${b.mode==='now'?'Reach by '+fTime(b.start):fDT(b.start)}<br><span class="xs muted">${b.days?b.days.filter(x=>x.status==='scheduled').length+' days':hrs(b.dur)}</span></td>
+   <td>${esc(b.make)} ${esc(b.model)}<br><span class="pill soft">${esc(b.type)} · ${esc(b.trans)}</span></td>
+   <td>${req?`${esc(req.name)}<br><span class="pill ${b.driverId===b.requested?'solid':'dash'}">${b.driverId===b.requested?'Met':'Not met'}</span>`:'<span class="muted">–</span>'}</td>
+   <td>${dr?`${esc(dr.name)}<br><span class="xs">${ic('check',12)} cleared for ${esc(b.type)}</span>${b.mode==='now'?`<br><span class="pill ${b.accepted?'soft':'dash'}">${b.accepted?'Accepted':'Awaiting accept'}</span>`:''}`:`<span class="pill ${u?'solid':'dash'}">Unassigned</span>`}${b.note&&!dr?`<br><span class="xs muted">${esc(b.note)}</span>`:''}</td>
+   <td><div class="stack-s" style="min-width:190px"><label class="sr" for="as-${b.id}">Driver for ${b.id}</label><select id="as-${b.id}">${el.length?el.map(x=>`<option value="${x.id}" ${x.id===b.requested?'selected':''}>${esc(x.name)} · ${x.rating}★${x.id===b.requested?' · requested':''}</option>`).join(''):`<option value="">No ${esc(b.type)} · ${esc(b.trans)} driver free</option>`}</select>
+    <div class="row"><button class="btn btn-primary btn-sm" data-act="ops-assign" data-id="${b.id}" ${el.length?'':'disabled'}>${dr?'Reassign':'Assign'}</button><button class="btn btn-ghost btn-sm" data-act="ops-cancel" data-id="${b.id}">Cancel</button></div></div></td></tr>`;}).join('')||'<tr><td colspan="6" class="muted">No upcoming bookings for this filter.</td></tr>'}</tbody></table></div>`;
+ } else if(tab==='safety'){
+  body=S.sos.length?`<div class="stack">${S.sos.slice().reverse().map(s=>{const b=booking(s.bookingId);return `<article class="card stack-s" style="${s.status==='new'?'border:2px solid var(--ink)':''}"><div class="row-b"><b>SOS from ${s.source} · ${b.id}</b><span class="pill ${s.status==='new'?'solid':s.status==='closed'?'soft':''}">${{new:'New',acknowledged:'Acknowledged',escalated:'Escalated',closed:'Closed'}[s.status]}</span></div>
+   <p class="small num">${fTime(s.t)} · ${esc(b.zone)} · live location attached · ${esc(b.make)} ${esc(b.model)}</p><p class="small">Driver: ${esc(driver(b.driverId).name)} · Family notified: ${esc(s.family)}</p>${s.via==='call'?'<p class="small b">Came in as a phone call (no data on device).</p>':''}
+   <ul class="audit">${s.log.map(l=>`<li><time>${fTime(l.t)}</time><span>${esc(l.text)}</span></li>`).join('')}</ul>
+   ${s.status!=='closed'?`<div class="wrapr">${s.status==='new'?`<button class="btn btn-primary btn-sm" data-act="sos-ack" data-id="${s.id}">Acknowledge</button>`:''}${s.status!=='escalated'?`<button class="btn btn-ghost btn-sm" data-act="sos-esc" data-id="${s.id}">Escalate</button>`:''}<button class="btn btn-ghost btn-sm" data-act="sos-close" data-id="${s.id}">Close</button></div>`:''}</article>`;}).join('')}</div>`
+   :`<div class="notice">${ic('info',20)}<p>No alerts. Press SOS during a live trip in the Customer or Partner app.</p></div>`;
+ } else if(tab==='drivers'){
+  const list=S.drivers.filter(d=>d.city==='Bengaluru');
+  body=`<div class="row" style="flex-wrap:wrap;align-items:end;margin-bottom:12px"><label class="f" for="susp" style="width:240px">Auto-suspend below rating<input type="number" id="susp" step="0.1" min="3" max="5" value="${S.config.suspendBelow}"></label><button class="btn btn-ghost btn-sm" data-act="set-susp">Apply rule</button></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Driver</th><th>Status</th><th>Car types</th><th>Gearbox</th><th>Rating</th><th>Repeat asks</th><th>In 1 hr</th><th></th></tr></thead><tbody>
+  ${list.map(d=>`<tr><td><b>${esc(d.name)}</b><br><span class="xs muted">${d.years} yrs · ${esc(d.zones.join(', '))}</span></td><td>${d.status==='verified'?'<span class="pill">Verified and Trained</span>':`<span class="pill solid">Suspended</span>${d.note?`<br><span class="xs muted">${esc(d.note)}</span>`:''}`}</td>
+   <td class="small">${esc(d.types.join(', '))}</td><td class="small">${esc(d.skills.join(', '))}</td><td class="num">${d.rating||'–'}<br><span class="xs muted">${d.trips} trips</span></td><td class="num">${S.bookings.filter(b=>b.requested===d.id).length}</td>
+   <td>${d.status==='verified'?`<span class="pill ${d.online?'solid':'dash'}">${d.online?'Online':'Offline'}</span>`:'–'}</td><td>${d.status==='suspended'?`<button class="btn btn-ghost btn-sm" data-act="reinstate" data-id="${d.id}">Reinstate after review</button>`:''}</td></tr>`).join('')}
+  ${S.applicant.activated?'':`<tr><td><b>${esc(S.applicant.name)}</b><br><span class="xs muted">Applicant</span></td><td><span class="pill dash">Onboarding</span></td><td colspan="6" class="small muted">Not matched to any car until verified and trained</td></tr>`}</tbody></table></div>`;
+ } else if(tab==='claims'){
+  body=S.claims.length?`<div class="tbl-wrap"><table><thead><tr><th>Claim</th><th>Trip</th><th>Sent to insurer</th><th>Status</th><th>Move to</th></tr></thead><tbody>${S.claims.map(c=>{const b=booking(c.bookingId);return `<tr><td><b>${c.id}</b><br><span class="small">${esc(c.part)}: ${esc(c.desc)}</span></td><td class="num">${b.id}<br><span class="xs muted">${esc(b.make)} ${esc(b.model)} · Driver ${b.driverId.toUpperCase()}</span></td><td class="small">Trip ID, 12 photos, time stamps, driver ID</td><td><span class="pill">${claimLabel(c.status)}</span></td>
+   <td><div class="wrapr">${c.status==='open'?`<button class="btn btn-ghost btn-sm" data-act="claim-set" data-id="${c.id}" data-v="review">Under review</button>`:''}${c.status==='review'?`<button class="btn btn-primary btn-sm" data-act="claim-set" data-id="${c.id}" data-v="approved">Approve</button><button class="btn btn-ghost btn-sm" data-act="claim-set" data-id="${c.id}" data-v="rejected">Reject</button>`:''}${c.status==='approved'?`<button class="btn btn-primary btn-sm" data-act="claim-set" data-id="${c.id}" data-v="paid">Mark paid</button>`:''}</div></td></tr>`;}).join('')}</tbody></table></div>`
+   :`<div class="notice">${ic('info',20)}<p>No claims. Finish a trip in the Customer app and flag damage at return.</p></div>`;
+ } else {
+  const r=S.rates;
+  body=`<div class="ops-grid"><section class="stack"><h2 style="font-size:1.1rem">Service switches</h2><p class="small muted">Turn UC Drive, or just In 1 hr, on or off by city and zone. Takes effect immediately.</p>
+   ${LAUNCH.map(c=>`<div class="stack-s" style="border-top:1px solid var(--line);padding-top:8px"><label class="switch"><input type="checkbox" data-change="city-on" data-c="${c}" ${S.config.cityOn[c]?'checked':''}><span class="tr"></span><b>${c}</b></label>
+    ${S.config.cityOn[c]?CITY_DATA[c].zones.map(z=>`<div class="zone-row"><b>${z}</b><label class="switch small"><input type="checkbox" data-change="zone-on" data-c="${c}" data-z="${z}" ${S.config.zonesOn[c][z]?'checked':''} aria-label="${z} bookings"><span class="tr"></span>Bookings</label>
+     <label class="switch small"><input type="checkbox" data-change="instant-on" data-c="${c}" data-z="${z}" ${S.config.instantOn[c][z]?'checked':''} ${S.config.zonesOn[c][z]?'':'disabled'} aria-label="${z} In 1 hr"><span class="tr"></span>In 1 hr</label></div>`).join(''):''}</div>`).join('')}</section>
+   <section class="stack"><h2 style="font-size:1.1rem">Rate card</h2><p class="small muted">New bookings only. Same rates for all three booking types.</p>
+    ${[['hourFirst','First hour (₹)'],['hourExtra','Each extra hour (₹)'],['nightPerHour','Night band 10 PM–6 AM, per hour (₹)'],['multiDiscount','Multi-day discount (%)'],['overtime','Overtime per 30 min (₹)'],['fee','Booking fee (₹)']].map(f=>`<label class="f" for="rc-${f[0]}">${f[1]}<input type="number" min="0" id="rc-${f[0]}" value="${r[f[0]]}" data-rc="${f[0]}"></label>`).join('')}
+    <h2 style="font-size:1.1rem;margin-top:8px">Booking limits</h2>
+    <div class="two"><label class="f" for="lim-max">Max hours on the slider<input type="number" id="lim-max" min="2" max="16" value="${S.config.maxH}"></label><label class="f" for="lim-lead">Later: minimum notice (hrs)<input type="number" id="lim-lead" min="1" max="12" value="${S.config.leadH}"></label></div>
+    <p class="err" id="rc-err" hidden></p><button class="btn btn-primary" data-act="save-rates">Publish changes</button></section></div>`;
+ }
+ const k=(v,l,alert)=>`<div class="kpi ${alert?'alert':''}" role="listitem"><div class="v">${v}</div><div class="k">${l}</div></div>`;
+ return `<div class="ops"><div class="ops-head"><div><span class="eyebrow">UC operations</span><h1 tabindex="-1" class="scr-h">UC Drive console · Bengaluru</h1></div></div>
+  <div class="kpis" role="list">${k(up.length,'Upcoming bookings')}${k(pendingInstant,'In 1 hr awaiting driver accept')}${k(urgent.length,'No driver, starts within 60 min',urgent.length)}${k(reqs.length?Math.round(reqMet/reqs.length*100)+'%':'–','Repeat-driver requests met')}${k(openSOS,'Open safety alerts',openSOS)}</div>
+  <div class="ops-grid"><section class="panel" style="padding-top:8px"><div class="tabs" role="tablist" aria-label="Console sections">${tabs.map(x=>`<button role="tab" data-act="otab" data-v="${x[0]}" aria-selected="${tab===x[0]}">${x[1]}</button>`).join('')}</div>${body}</section>
+  <aside class="panel"><h2>Audit log</h2><p class="small muted" style="margin-bottom:10px">Every assignment, accept, cancellation, SOS and change.</p><ul class="audit">${S.audit.map(a=>`<li><time>${fTime(a.t)}</time><span><b>${esc(a.who)}:</b> ${esc(a.text)}</span></li>`).join('')}</ul></aside></div></div>`;
+}
+
+/* ============ render ============ */
+function render(nav){
+ const fid=document.activeElement&&document.activeElement.id,sc=$('.device-scroll'),st=sc?sc.scrollTop:0;stopMap();
+ $('#views').innerHTML=[['customer','Customer app'],['partner','Partner app'],['ops','Ops console']].map(v=>`<button data-act="view" data-v="${v[0]}" ${S.view===v[0]?'aria-current="page"':''}>${v[1]}</button>`).join('');
+ let html='';
+ if(S.view==='customer'||S.view==='partner'){
+  const tr=S.view==='customer'?TRACE[S.screen]||TRACE.home:{t:'Driver partner app',fr:[['In 1 hr','Instant requests to accept or decline; online switch'],['Car','"My cars" shows the car types and gearboxes you are cleared for'],['FR-M-07','See which customers asked for you by name'],['FR-D-01 to 05','Join: documents, checks, car experience, test, training'],['FR-S-03 to 06','SOS, six photos at start and return, PIN to start'],['FR-R-02','Rate the customer']],tip:'You are Ramesh Gowda. Book In 1 hr in the Customer app and switch here quickly to accept it yourself.'};
+  html=`<div class="bench"><div class="device"><div class="device-scroll">${S.view==='customer'?customerScreen():partnerView()}</div>${S.view==='customer'?modalHTML():''}</div></div>`;
+ } else html=opsView();
+ $('#main').innerHTML=html;
+ const ns=$('.device-scroll');
+ if(nav){if(ns)ns.scrollTop=0;if(window.scrollY>200)window.scrollTo(0,0);const h=$('.scr-h');if(h)h.focus({preventScroll:true});}
+ else{if(ns)ns.scrollTop=st;if(fid){const el=document.getElementById(fid);if(el)el.focus({preventScroll:true});}}
+ if(S.modal){const sh=$('#sheet');if(sh&&!sh.contains(document.activeElement)){const f=sh.querySelector('button:not([disabled]),input,select,a');if(f)f.focus();}}
+ if(S.view==='customer'&&S.screen==='trip'){const b=booking(S.current);if(b&&b.tripPhase==='live')startMap(b);}
+ if(S._focusErr){S._focusErr=false;const s=$('#err-summary');if(s)s.focus();}
+}
+
+/* ============ actions ============ */
+function simDriver(b){const t=now();
+ if(b.tripPhase==='arriving'){b.startPhotos=PHOTO_SET.map((_,i)=>t-(6-i)*20e3);b.tripPhase='handover';stamp(b,`${driver(b.driverId).name} arrived and took 6 start photos.`);toast('Driver arrived and took the start photos');}
+ else if(b.tripPhase==='handover'&&b.handoverOk){b.tripPhase='live';b.elapsedMin=0;stamp(b,'PIN verified. Trip started.');log('System',`${b.id}: trip started.`);toast('Trip started');}
+ else if(b.tripPhase==='live')endTrip(b,PHOTO_SET.map((_,i)=>t-(6-i)*15e3));}
+function endTrip(b,photos){if(photos)b.returnPhotos=photos;const over=(b.elapsedMin||0)-b.dur*60;b.overtimeCharge=(b.overtimeCharge||0)+(over>0?Math.ceil(over/S.config.overtimeBlock)*S.rates.overtime:0);
+ b.tripPhase='return';b.end=now();stamp(b,'Trip ended. Return photos taken. Family links expired.'+(over>0?` Overtime ${inr(Math.ceil(over/S.config.overtimeBlock)*S.rates.overtime)}.`:''));log('System',`${b.id}: trip ended.`);toast('Car returned. Check the return photos.');}
+function finishTrip(b){
+ if(b.days){const d=b.days.find(x=>x.status==='scheduled');if(d)d.status='done';}
+ const rem=b.days?b.days.some(x=>x.status==='scheduled'):false;
+ if(rem){b.lastDay={returnPhotos:b.returnPhotos};b.returnPhotos=[];b.startPhotos=[];b.handoverOk=false;b.tripPhase=null;const nx=b.days.find(x=>x.status==='scheduled');b.start=combine(nx.date,nx.time);b.dur=nx.hours;b.end=b.start+b.dur*H;}
+ else{b.tripPhase='done';b.status='completed';}
+}
+function syncMultiStart(b){const nx=b.days.find(x=>x.status==='scheduled');if(nx){b.start=combine(nx.date,nx.time);b.dur=nx.hours;b.end=b.start+b.dur*H;}else b.status=b.days.some(x=>x.status==='done')?'completed':'cancelled';}
+
+const A={
+ view(d){S.view=d.v;S.modal=null;render(true);},
+ nav(d){S.history=[];S.screen=d.to;S.modal=null;render(true);},
+ 'nav-home'(){S.history=[];S.screen='home';render(true);},
+ 'nav-bookings'(){S.history=[];S.screen='bookings';render(true);},
+ back(){back();},
+ 'other-svc'(){toast('This prototype covers UC Drive only.');},
+ 'start-book'(d){const keep=S.againFor;S.draft=newDraft(d.mode);if(keep){S.draft.sameDriver=keep;const lt=lastTripWith(keep);if(lt){S.draft.make=lt.make;S.draft.model=lt.model;S.draft.trans=lt.trans;if(lt.addrId)S.draft.addrId=lt.addrId;}S.againFor=null;}go('book');},
+ 'book-again'(d){S.againFor=d.d;S.history=[];S.screen='home';go('drive');toast(`Choose when you need ${driver(d.d).name.split(' ')[0]}`);},
+ pass(d){S.draft.pass=d.v;render();},
+ trans(d){S.draft.trans=d.v;delete S.draft.errors.trans;render();},
+ 'pick-car'(d){const c=S.myCars.find(x=>x.id===d.id);Object.assign(S.draft,{make:c.make,model:c.model,trans:c.trans});['make','model','trans'].forEach(k=>delete S.draft.errors[k]);render();},
+ 'toggle-day'(d){const m=S.draft.multi,i=m.findIndex(x=>x.date===d.date);if(i>=0)m.splice(i,1);else{const tpl=m[0]||{time:'',hours:S.draft.hours};m.push({date:d.date,time:tpl.time,hours:tpl.hours});m.sort((a,b)=>a.date<b.date?-1:1);}Object.keys(S.draft.errors).forEach(k=>{if(k==='days'||/^t\d+$/.test(k))delete S.draft.errors[k];});render();},
+ 'copy-first'(){const m=S.draft.multi,f=m[0];m.forEach(x=>{x.time=f.time;x.hours=f.hours;});render();toast('Applied to all days');},
+ 'add-addr'(){S.draft.newAddr={label:'',line:'',zone:'',errors:{}};render();setTimeout(()=>{const x=$('#na-label');x&&x.focus();});},
+ 'cancel-addr'(){S.draft.newAddr=null;render();},
+ 'save-addr'(){const n=S.draft.newAddr,e={};if(!n.label.trim())e.label='Give this address a label.';if(!n.line.trim())e.line='Enter the house, building and street.';if(!n.zone)e.zone='Choose the area.';else if(!zoneLive(S.city,n.zone))e.zone=`UC Drive isn't live in ${n.zone} yet. It serves ${liveZones().join(', ')}.`;
+  n.errors=e;if(Object.keys(e).length){render();const f=$('[aria-invalid="true"]');f&&f.focus();return;}const id='a'+(100+S.addresses.length);S.addresses.push({id,city:S.city,label:n.label.trim(),line:n.line.trim(),zone:n.zone});S.draft.addrId=id;S.draft.newAddr=null;delete S.draft.errors.addr;render();toast('Address saved');},
+ 'to-review'(){const d=S.draft;d.errors=validate(d);if(Object.keys(d.errors).length){S._focusErr=true;render();return;}d.check=check(d);go('review');},
+ 'pick-slot'(d){const ts=Number(d.ts);S.draft.date=isoDate(ts);S.draft.time=hhmm(ts);S.draft.check=check(S.draft);render(true);toast('Changed to '+fDT(ts));},
+ 'pick-free'(d){const ts=Number(d.ts);S.draft.mode='later';S.draft.date=isoDate(ts);S.draft.time=hhmm(ts);S.draft.check=check(S.draft);render(true);toast(`Moved to ${fDT(ts)}, when ${driver(S.draft.sameDriver).name.split(' ')[0]} is free`);},
+ 'drop-dates'(){const d=S.draft,bad=d.check.block.dropDates;d.multi=d.multi.filter(x=>!bad.includes(x.date));if(d.multi.length<S.config.multiMin){toast('Too few dates left. Pick others.');back();return;}d.check=check(d);render(true);},
+ 'switch-later'(){S.draft.mode='later';S.draft.date='';S.draft.time='';S.draft.errors={};S.history.pop();S.screen='book';render(true);toast('Choose a date and time');},
+ 'open-pay'(){S.modal={type:'pay'};render();},
+ 'close-modal'(){S.modal=null;render();},
+ scrim(d,el,ev){if(ev.target===el&&!(S.modal&&S.modal.busy)){S.modal=null;render();}},
+ 'do-pay'(){if((S.payMethod||'UPI')==='UC Wallet'&&S.wallet.cash<quote(S.draft).total){toast(`UC Cash is ${inr(S.wallet.cash)}. Add money or choose UPI or card.`);return;}S.modal.busy=true;render();setTimeout(()=>{const ck=check(S.draft);if(ck.block){S.draft.check=ck;S.modal=null;render();toast('That slot just filled up. You have not been charged.');return;}
+  const b=createBooking();b.bookedAt=now();if(b.paidWith==='UC Wallet'){S.wallet.cash-=b.price.total;S.wallet.activity.unshift({t:now(),text:`Paid · UC Drive ${b.id}`,amt:-b.price.total,kind:'cash'});}S.modal=null;S.history=[];S.current=b.id;S.screen='confirmed';render(true);toast('Booking '+b.id+' confirmed');},1100);},
+ 'open-booking'(d){S.current=d.id;go('detail',{id:d.id});},
+ 'open-trip'(d){S.current=d.id;go('trip',{id:d.id});},
+ 'track-now'(d){const b=booking(d.id);if(!b.driverId){toast('Still finding a driver');return;}if(!b.accepted){toast('Waiting for the driver to accept');return;}if(!b.tripPhase){b.tripPhase='arriving';stamp(b,`${driver(b.driverId).name} is on the way.`);}S.current=b.id;go('trip',{id:b.id});},
+ 'masked-call'(){S.modal={type:'call'};render();},
+ 'open-wallet'(){S.modal={type:'wallet',sub:null};render();},
+ 'open-profile'(){S.modal={type:'profile',sub:null};render();},
+ wsub(d){const m=S.modal;m.sub=m.sub===d.v?null:d.v;m.amt=null;m.gErr='';render();},
+ psub(d){const m=S.modal;m.sub=m.sub===d.v?null:d.v;render();},
+ 'w-amt'(d){const m=S.modal;if(m.sub==='gift'){const n=$('#gc-name'),p=$('#gc-phone');if(n)m.gName=n.value;if(p)m.gPhone=p.value;}m.amt=Number(d.v);render();},
+ 'w-add'(){const m=S.modal,W=S.wallet;W.cash+=m.amt;W.activity.unshift({t:now(),text:'Added money via UPI',amt:m.amt,kind:'cash'});toast(`${inr(m.amt)} added to UC Cash`);m.amt=null;m.sub='activity';render();},
+ 'w-gift'(){const m=S.modal,n=$('#gc-name').value.trim(),p=$('#gc-phone').value.replace(/\D/g,'');m.gName=n;m.gPhone=$('#gc-phone').value;
+  m.gErr=!m.amt?'Choose an amount.':!n?'Enter their name.':!/^[6-9]\d{9}$/.test(p)?'Enter a 10-digit Indian mobile number.':'';if(m.gErr){render();return;}
+  S.wallet.activity.unshift({t:now(),text:`Gift card for ${n} · paid via UPI`,amt:-m.amt,kind:'gift'});toast(`${inr(m.amt)} gift card sent to ${n} by SMS`);m.amt=null;m.gName='';m.gPhone='';m.sub='activity';render();},
+ 'prof-bookings'(){S.modal=null;S.history=[];S.screen='bookings';render(true);},
+ 'help-chat'(){toast('Support chat would open here. Average reply time: 2 min.');},
+ cancel(){S.modal={type:'cancel'};render();},
+ 'do-cancel'(){const b=booking(S.current),r=refundFor(b,b.price.total+(b.extraPaid||0));b.status='cancelled';b.refund=r.amt;b.tripPhase=null;stamp(b,`Cancelled by you. ${inr(r.amt)} refund started.`);log('Customer',`${b.id} cancelled; refund ${inr(r.amt)}.`);S.modal=null;render();toast(`Cancelled. ${inr(r.amt)} will be refunded.`);},
+ resched(){S.modal={type:'resched'};render();},
+ 'add-day'(){S.modal={type:'addday',date:'',time:''};render();},
+ 'day-move'(d){S.modal={type:'move',i:Number(d.i)};render();},
+ 'day-skip'(d){S.modal={type:'skip',i:Number(d.i)};render();},
+ 'do-skip'(){const b=booking(S.current),x=b.days[S.modal.i],ts=combine(x.date,x.time),r=refundFor({start:ts,mode:'later'},x.price||dayPrice(x));x.status='skipped';b.refund=(b.refund||0)+r.amt;stamp(b,`${fDate(ts)} skipped. ${inr(r.amt)} refund started.`);log('Customer',`${b.id}: skipped ${fDate(ts)}.`);syncMultiStart(b);S.modal=null;render();toast('Day skipped');},
+ 'do-resched'(){const b=booking(S.current),m=S.modal;const ds=$('#rs-date').value,tsS=$('#rs-time').value,ts=combine(ds,tsS);const h=m.type==='resched'?b.dur:(m.h||(m.type==='move'?b.days[m.i].hours:b.days.slice(-1)[0].hours));let err='';
+  if(!ts)err='Choose a date and a start time.';else if(ts<now()+S.config.leadH*H)err=`Pick a time at least ${S.config.leadH} hours from now.`;else if(ts>now()+S.config.horizonD*DAY)err=`You can book up to ${S.config.horizonD} days ahead.`;else if(atCap(ts))err='That slot is fully booked. Try an earlier time or another day.';
+  else if(m.type==='addday'&&b.days.some(x=>x.date===ds&&x.status==='scheduled'))err='You already have that day booked. Move it instead.';
+  if(err){m.err=err;m.date=ds;m.time=tsS;render();return;}
+  const dr=driver(b.driverId);
+  const free=dId=>{ if(m.type==='move'){const x=b.days[m.i];const save=x.status;x.status='moving';const r=!busy(dId,ts,ts+h*H,null);x.status=save;return r;} return !busy(dId,ts,ts+h*H,m.type==='resched'?b.id:null); };
+  if(!free(dr.id)){const alt=eligible(b.city,b.zone,b.trans,b.type,ts,ts+h*H,{ignore:b.id}).find(x=>free(x.id));if(!alt){m.err='No matching driver is free then. Try another time.';m.date=ds;m.time=tsS;render();return;}stamp(b,`${dr.name} isn't free at ${fDT(ts)}; ${alt.name} will drive${m.type==='resched'?'':' that day'}.`);if(m.type==='resched')b.driverId=alt.id;}
+  if(m.type==='addday'){const nd={date:ds,time:tsS,hours:h,status:'scheduled',added:true};nd.price=dayPrice(nd);b.days.push(nd);b.days.sort((p,q)=>combine(p.date,p.time)-combine(q.date,q.time));b.extraPaid=(b.extraPaid||0)+nd.price;stamp(b,`Added ${fDate(ts)}, ${fTime(ts)} for ${hrs(h)}. Paid ${inr(nd.price)}.`);log('Customer',`${b.id}: added a day (${fDate(ts)}).`);syncMultiStart(b);toast('Day added');}
+  else if(m.type==='move'){const x=b.days[m.i];stamp(b,`${fDate(combine(x.date,x.time))} moved to ${fDT(ts)}.`);x.date=ds;x.time=tsS;x.hours=h;x.price=dayPrice(x);b.days.sort((p,q)=>combine(p.date,p.time)-combine(q.date,q.time));syncMultiStart(b);toast('Day moved');}
+  else{b.start=ts;b.end=ts+b.dur*H;stamp(b,`Rescheduled to ${fDT(ts)}. Price unchanged.`);log('Customer',`${b.id} rescheduled.`);toast('New time saved');}
+  S.modal=null;render();},
+ 'fast-forward'(){const b=booking(S.current);b.tripPhase='arriving';stamp(b,`Trip day. ${driver(b.driverId).name} is on the way.`);go('trip',{id:b.id});},
+ 'drv-cancel'(){const b=booking(S.current),nd=driverDrops(b,'dropped out');render();toast(nd?`Your driver changed to ${nd.name}`:'Your driver dropped out. UC operations is finding a replacement.');},
+ 'sim-driver'(){simDriver(booking(S.current));render();},
+ 'confirm-handover'(){const c=$('#ho-check');if(!c||!c.checked){toast('Tick the box once you have checked the photos.');c&&c.focus();return;}const b=booking(S.current);b.handoverOk=true;stamp(b,'You confirmed the handover photos.');render();},
+ 'fam-add'(){const n=$('#fam-name').value.trim(),p=$('#fam-phone').value.replace(/\D/g,''),er=$('#fam-err');if(!n||!/^[6-9]\d{9}$/.test(p)){er.hidden=false;er.textContent=!n?'Enter their name.':'Enter a 10-digit Indian mobile number.';(!n?$('#fam-name'):$('#fam-phone')).focus();return;}S.family.push({name:n,phone:p.replace(/(\d{5})(\d{5})/,'$1 $2')});render();toast(`Tracking link sent to ${n}`);},
+ 'fam-del'(d){S.family.splice(Number(d.i),1);render();},
+ sos(){S.modal={type:'sos'};render();},
+ 'do-sos'(){const b=booking(S.current);raiseSOS(b,'customer',S.offline);S.modal=S.offline?{type:'sos',offline:true}:{type:'sos',sent:now()};render();},
+ 'return-ok'(){const b=booking(S.current);stamp(b,'You confirmed the car came back fine.');finishTrip(b);S.rateDraft={stars:0,comment:''};S.screen='rate';render(true);},
+ 'return-flag'(){const b=booking(S.current);stamp(b,'You flagged damage at return.');finishTrip(b);S.claimDraft={part:'',desc:''};S.screen='claim';render(true);},
+ 'open-rate'(d){S.current=d.id;S.rateDraft={stars:0,comment:''};go('rate',{id:d.id});},
+ 'start-claim'(d){S.current=d.id;S.claimDraft={part:'',desc:''};go('claim',{id:d.id});},
+ 'open-claim'(d){S.current=d.id;go('claim',{id:d.id});},
+ 'submit-rate'(){const r=S.rateDraft,b=booking(S.current);if(!r.stars){const e=$('#rate-err');e.hidden=false;e.textContent='Choose a rating from 1 to 5 stars.';$('.stars input').focus();return;}
+  b.rating=r.stars;const dr=driver(b.driverId);dr.rating=Math.round(((dr.rating*dr.trips)+r.stars)/(dr.trips+1)*100)/100;dr.trips++;stamp(b,`You rated ${dr.name} ${r.stars} ★.`);log('Customer',`${b.id}: rated ${dr.name} ${r.stars}★.`);applySuspend();S.history=[];S.screen='detail';render(true);toast('Thanks for rating');},
+ 'submit-claim'(){const f=S.claimDraft,b=booking(S.current),er=$('#claim-err');if(!f.part||f.desc.trim().length<10){er.hidden=false;er.textContent=!f.part?'Choose where the damage is.':'Describe the damage in a few words (at least 10 characters).';(!f.part?$('#cl-part'):$('#cl-desc')).focus();return;}
+  if(!b.returnPhotos.length&&b.lastDay)b.returnPhotos=b.lastDay.returnPhotos;const c={id:'CLM-'+rnd(1100,9899),bookingId:b.id,part:f.part,desc:f.desc.trim(),status:'open',t:now()};S.claims.push(c);stamp(b,`Damage claim ${c.id} raised and sent to the insurer.`);log('System',`${c.id} sent to insurer for ${b.id}.`);render(true);toast('Claim '+c.id+' submitted');},
+ /* partner */
+ ptab(d){S.partnerTab=d.v;render();},
+ 'p-accept'(d){const b=booking(d.id);acceptInstant(b,false);render();toast('Accepted. Head to the pickup.');},
+ 'p-decline'(d){const b=booking(d.id),nd=driverDrops(b,'declined the In 1 hr request');render();toast(nd?`Passed to ${nd.name}`:'No other matching driver online. Ops alerted.');},
+ 'p-start-day'(d){const b=booking(d.id);b.tripPhase='arriving';stamp(b,`${driver(b.driverId).name} is on the way.`);render();},
+ cap(d){const b=S.bookings.find(x=>x.driverId==='d1'&&x.tripPhase&&x.tripPhase!=='done');const list=d.kind==='start'?b.startPhotos:b.returnPhotos;list[Number(d.i)]=now();if(d.kind==='start'&&b.tripPhase==='arriving'){b.tripPhase='handover';stamp(b,`${driver(b.driverId).name} arrived and started the handover photos.`);}render();},
+ 'p-start'(){const b=S.bookings.find(x=>x.driverId==='d1'&&x.tripPhase==='handover'),v=$('#p-pin').value.trim(),er=$('#p-pin-err');if(v!==b.pin){er.hidden=false;er.textContent='That PIN doesn’t match. Ask the customer for the 4-digit PIN in their app.';$('#p-pin').focus();return;}b.tripPhase='live';b.elapsedMin=0;stamp(b,'PIN verified. Trip started.');log('System',`${b.id}: trip started.`);render();toast('Trip started');},
+ 'p-end'(){const b=S.bookings.find(x=>x.driverId==='d1'&&x.tripPhase==='live');endTrip(b);render();},
+ 'p-sos'(){const b=S.bookings.find(x=>x.driverId==='d1'&&x.tripPhase==='live');raiseSOS(b,'driver',false);render();toast('SOS sent to the UC safety desk');},
+ 'p-rate-cust'(d){const b=booking(d.id);b.custRated=Number($('#cr-'+d.id).value);const iss=$('#ci-'+d.id).value.trim();log('Driver',`${b.id}: rated customer ${b.custRated}★${iss?'; issue: '+iss:''}.`);render();toast('Feedback sent');},
+ 'docs-sample'(){S.applicant.docs={id:true,licence:true,photo:true};render();},
+ bgv(){S.applicant.bgv='pending';log('System',`Background check started for ${S.applicant.name}.`);render();setTimeout(()=>{S.applicant.bgv='clear';log('Vendor',`Background check clear for ${S.applicant.name}.`);render();},1500);},
+ activate(){const a=S.applicant;a.activated=true;S.drivers.push({id:'d99',name:a.name,city:'Bengaluru',zones:a.zones,skills:Object.keys(a.skills).filter(k=>a.skills[k]),types:Object.keys(a.types).filter(k=>a.types[k]),years:parseInt(a.years),rating:null,trips:0,status:'verified',online:true,since:'Oct 2026'});log('Ops',`${a.name} activated for ${Object.keys(a.types).filter(k=>a.types[k]).join(', ')}.`);render();toast(`${a.name} can now take trips`);},
+ /* ops */
+ otab(d){S.opsTab=d.v;render();},
+ 'ops-assign'(d){const b=booking(d.id),sel=$('#as-'+d.id);if(!sel.value)return;const prev=b.driverId;b.driverId=sel.value;if(b.mode==='now')b.accepted=true;stamp(b,`UC operations assigned ${driver(sel.value).name}.`);log('Ops (you)',`${b.id}: ${prev?'reassigned from '+driver(prev).name+' to':'assigned'} ${driver(sel.value).name}${sel.value===b.requested?' (requested driver)':''}.`);render();toast(`${driver(sel.value).name} assigned to ${b.id}`);},
+ 'ops-cancel'(d){S.pageModal={id:d.id};renderPageModal();},
+ 'do-ops-cancel'(){const b=booking(S.pageModal.id),r=$('#oc-reason').value.trim();if(!r){const e=$('#oc-err');e.hidden=false;e.textContent='Enter a reason. It goes in the audit log and to the customer.';$('#oc-reason').focus();return;}b.status='cancelled';b.refund=b.price.total;stamp(b,`Cancelled by UC operations: ${r}. Full refund.`);log('Ops (you)',`${b.id} cancelled: ${r}. Full refund.`);S.pageModal=null;renderPageModal();render();toast(b.id+' cancelled');},
+ 'close-page-modal'(){S.pageModal=null;renderPageModal();},
+ 'sos-ack'(d){sosSet(d.id,'acknowledged','Acknowledged by safety desk. Calling customer.');},
+ 'sos-esc'(d){sosSet(d.id,'escalated','Escalated to city safety lead and local emergency services.');},
+ 'sos-close'(d){sosSet(d.id,'closed','Closed. Customer confirmed safe.');},
+ 'claim-set'(d){const c=S.claims.find(x=>x.id===d.id);c.status=d.v;stamp(booking(c.bookingId),`Claim ${c.id}: ${claimLabel(d.v)}.`);log('Claims (you)',`${c.id} → ${claimLabel(d.v)}.`);render();},
+ 'set-susp'(){const v=Number($('#susp').value);if(!(v>=3&&v<=5)){toast('Enter a threshold between 3 and 5.');return;}S.config.suspendBelow=v;const n=applySuspend();log('Ops (you)',`Auto-suspend threshold set to ${v}.`);render();toast(n?`${n} driver${n>1?'s':''} suspended for review`:'Rule applied');},
+ reinstate(d){const dr=driver(d.id);dr.status='verified';dr.note='';log('Ops (you)',`${dr.name} reinstated after review.`);render();},
+ 'save-rates'(){const out={};let bad=false;document.querySelectorAll('[data-rc]').forEach(i=>{const v=Number(i.value);if(i.value===''||!(v>=0)){bad=true;i.setAttribute('aria-invalid','true');}out[i.dataset.rc]=v;});
+  const mx=Number($('#lim-max').value),ld=Number($('#lim-lead').value),e=$('#rc-err');
+  if(bad||out.multiDiscount>50||!(mx>=2&&mx<=16)||!(ld>=1&&ld<=12)){e.hidden=false;e.textContent=bad?'Every rate needs a number of 0 or more.':out.multiDiscount>50?'Multi-day discount can be at most 50%.':'Max hours must be 2–16 and notice 1–12.';return;}
+  Object.assign(S.rates,out);S.config.maxH=mx;S.config.leadH=ld;log('Ops (you)','Rate card and booking limits published.');render();toast('Published. New bookings use these now.');},
+};
+function applySuspend(){let n=0;S.drivers.forEach(d=>{if(d.status==='verified'&&d.rating!=null&&d.rating<S.config.suspendBelow){d.status='suspended';d.note='Rolling rating fell below threshold';d.online=false;n++;log('System',`${d.name} auto-suspended (rating ${d.rating}).`);}});return n;}
+function raiseSOS(b,src,offline){const s={id:'SOS-'+rnd(100,999),bookingId:b.id,source:src,t:now(),status:'new',family:S.family.length?S.family.map(f=>f.name.split(' ')[0]).join(', '):'none',via:offline?'call':'app',log:[{t:now(),text:offline?'Call received from the customer’s registered number.':'Alert received with trip ID, live location and contacts.'}]};S.sos.push(s);stamp(b,`SOS raised by ${src}.`);log('System',`${s.id}: SOS from ${src} on ${b.id}.`);}
+function sosSet(id,st,text){const s=S.sos.find(x=>x.id===id);s.status=st;s.log.push({t:now(),text});log('Safety desk (you)',`${s.id}: ${text}`);render();}
+function renderPageModal(){const m=S.pageModal,host=$('#page-modal');if(!m){host.innerHTML='';return;}const b=booking(m.id);
+ host.innerHTML=`<div class="page-scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pm-h" id="psheet"><h2 id="pm-h">Cancel ${b.id}?</h2><p class="small">${esc(b.customer)} gets a full refund and a message with your reason.</p><label class="f" for="oc-reason">Reason<input type="text" id="oc-reason" placeholder="e.g. No luxury-cleared driver free in zone"></label><p class="err" id="oc-err" hidden></p><button class="btn btn-primary" data-act="do-ops-cancel">Cancel booking</button><button class="btn btn-ghost" data-act="close-page-modal">Keep it</button></div></div>`;$('#oc-reason').focus();}
+
+/* ============ events ============ */
+document.addEventListener('click',ev=>{const el=ev.target.closest('[data-act]');if(!el)return;if(['LABEL','INPUT','SELECT'].includes(el.tagName))return;const fn=A[el.dataset.act];if(!fn)return;if(el.dataset.act==='scrim'){fn(el.dataset,el,ev);return;}ev.preventDefault();fn(el.dataset,el,ev);});
+document.addEventListener('submit',ev=>ev.preventDefault());
+function setPath(o,p,v){const k=p.split('.');for(let i=0;i<k.length-1;i++)o=o[k[i]];o[k[k.length-1]]=v;}
+function refreshEst(){const el=$('#est');if(el&&S.draft&&(S.draft.mode!=='multi'||S.draft.multi.length))el.textContent=inr(quote(S.draft).total);}
+function refreshAddPrice(){const el=$('#add-price'),m=S.modal;if(!el||!m||m.type!=='addday')return;const b=booking(S.current);const h=m.h||b.days.slice(-1)[0].hours;el.innerHTML=m.date&&m.time?`This day costs <b class="num">${inr(dayPrice({date:m.date,time:m.time,hours:h}))}</b> (multi-day rate). We'll ask ${esc(driver(b.driverId).name.split(' ')[0])} first.`:'Pick a date and time to see the price.';}
+document.addEventListener('input',ev=>{const t=ev.target;
+ if(t.dataset.drag){const v=Number(t.value);t.style.setProperty('--fill',((v-S.config.minH)/(S.config.maxH-S.config.minH))*100+'%');t.setAttribute('aria-valuetext',hrs(v));const o=document.getElementById(t.id+'-out');if(o)o.innerHTML=`${v}<small>hr${v>1?'s':''}</small>`;
+  if(t.dataset.drag==='hours')S.draft.hours=v;else if(t.dataset.drag==='multi')S.draft.multi[Number(t.dataset.i)].hours=v;else if(t.dataset.drag==='modal'){S.modal.h=v;refreshAddPrice();}refreshEst();return;}
+ if(t.dataset.bind&&S.draft)setPath(S.draft,t.dataset.bind,t.value);
+ if(t.hasAttribute('data-bind-rate'))S.rateDraft.comment=t.value;
+ if(t.dataset.bindClaim)S.claimDraft[t.dataset.bindClaim]=t.value;});
+document.addEventListener('change',ev=>{const t=ev.target,k=t.dataset.change;
+ if(t.dataset.bind&&S.draft){setPath(S.draft,t.dataset.bind,t.value);if(['date','time'].includes(t.dataset.bind)){delete S.draft.errors[t.dataset.bind];refreshEst();}return;}
+ if(t.dataset.mtime!=null){S.draft.multi[Number(t.dataset.mtime)].time=t.value;delete S.draft.errors['t'+t.dataset.mtime];refreshEst();return;}
+ if(t.dataset.mbind&&S.modal){S.modal[t.dataset.mbind]=t.value;refreshAddPrice();return;}
+ if(t.dataset.bindClaim){S.claimDraft[t.dataset.bindClaim]=t.value;return;}
+ if(!k)return;const a=S.applicant;
+ switch(k){
+  case 'city':S.city=t.value;if(S.draft){const ad=S.addresses.find(x=>x.city===S.city);S.draft.addrId=ad&&ad.id;}render();toast(cityLive(S.city)?`UC Drive is live in ${S.city}`:`UC Drive isn't available in ${S.city} yet`);break;
+  case 'make':S.draft.make=t.value;S.draft.model='';delete S.draft.errors.make;render();break;
+  case 'model':S.draft.model=t.value;delete S.draft.errors.model;render();break;
+  case 'same':S.draft.sameDriver=t.checked?t.value:'';render();break;
+  case 'pm':S.payMethod=t.value;break;
+  case 'offline':S.offline=t.checked;break;
+  case 'stars':S.rateDraft.stars=Number(t.value);render();break;
+  case 'avail':S.availability[t.dataset.k]=t.checked;break;
+  case 'guar':S.guaranteed[t.dataset.k]=t.checked;toast(t.checked?'Opted in to the guaranteed-hours slot':'Opted out');break;
+  case 'online':driver('d1').online=t.checked;log('Driver',`Ramesh Gowda ${t.checked?'went online':'went offline'} for In 1 hr trips.`);render();break;
+  case 'doc':if(t.files&&t.files[0]){a.docs[t.dataset.k]=true;render();toast('Uploaded '+t.files[0].name);}break;
+  case 'dtest':a.test=t.value;render();break;
+  case 'train':a.training[t.dataset.k]=t.checked;render();break;
+  case 'skill':a.skills[t.dataset.k]=t.checked;render();break;
+  case 'ctype':a.types[t.dataset.k]=t.checked;render();break;
+  case 'years':a.years=t.value;break;
+  case 'opszone':S.opsZone=t.value;render();break;
+  case 'opsmode':S.opsMode=t.value;render();break;
+  case 'city-on':S.config.cityOn[t.dataset.c]=t.checked;log('Ops (you)',`UC Drive ${t.checked?'on':'off'} in ${t.dataset.c}.`);render();break;
+  case 'zone-on':S.config.zonesOn[t.dataset.c][t.dataset.z]=t.checked;log('Ops (you)',`${t.dataset.z}: bookings ${t.checked?'on':'off'}.`);render();break;
+  case 'instant-on':S.config.instantOn[t.dataset.c][t.dataset.z]=t.checked;log('Ops (you)',`${t.dataset.z}: In 1 hr ${t.checked?'on':'off'}.`);render();break;
+ }});
+document.addEventListener('keydown',ev=>{
+ if(ev.key==='Escape'){if(S.pageModal){S.pageModal=null;renderPageModal();}else if(S.modal&&!S.modal.busy){S.modal=null;render();}}
+ if(ev.key==='Tab'){const sh=$('#psheet')||$('#sheet');if(!sh)return;const f=[...sh.querySelectorAll('button:not([disabled]),input:not([disabled]),select,textarea,a[href]')];if(!f.length)return;const first=f[0],last=f[f.length-1];if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus();}else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus();}}});
+render(false);
+})();
+</script>
+
+</body>
+</html>
